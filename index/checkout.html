@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checkout — Dera Karahi</title>
+  <meta name="description" content="Complete your Dera Karahi order." />
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <header class="site-header site-header--simple">
+    <div class="container header-main">
+      <a href="index.html" class="brand">
+        <img src="assets/logo.svg" alt="Dera Karahi logo" class="brand-logo" />
+        <span class="brand-text">
+          <span class="brand-name">Dera Karahi</span>
+          <span class="brand-tag">Desi Karahi &amp; BBQ</span>
+        </span>
+      </a>
+      <a href="index.html" class="btn btn-ghost">← Back to menu</a>
+    </div>
+  </header>
+
+  <main class="checkout">
+    <div class="container">
+      <h1 class="page-title">Checkout</h1>
+
+      <div id="checkoutRoot">
+        <div class="checkout-grid">
+          <!-- Form -->
+          <section class="checkout-form">
+            <form id="checkoutForm" novalidate>
+              <fieldset class="order-type">
+                <legend>How would you like your order?</legend>
+                <div class="seg">
+                  <label class="seg-option">
+                    <input type="radio" name="orderType" value="delivery" checked />
+                    <span>🛵 &nbsp;Delivery</span>
+                  </label>
+                  <label class="seg-option">
+                    <input type="radio" name="orderType" value="pickup" />
+                    <span>🏪 &nbsp;Pickup</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <div class="field" data-field="name">
+                <label for="name">Full Name</label>
+                <input id="name" name="name" type="text" placeholder="e.g. Ahmed Khan" autocomplete="name" />
+                <span class="error" data-error="name"></span>
+              </div>
+
+              <div class="field" data-field="phone">
+                <label for="phone">Phone Number</label>
+                <input id="phone" name="phone" type="tel" placeholder="03XX-XXXXXXX" autocomplete="tel" />
+                <span class="error" data-error="phone"></span>
+              </div>
+
+              <div class="field" data-field="address" id="addressField">
+                <label for="address">Delivery Address</label>
+                <textarea id="address" name="address" rows="3" placeholder="House, street, area, city" autocomplete="street-address"></textarea>
+                <span class="error" data-error="address"></span>
+              </div>
+
+              <div class="field">
+                <label for="notes">Order Notes <span class="optional">(optional)</span></label>
+                <textarea id="notes" name="notes" rows="2" placeholder="Any special instructions…"></textarea>
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-block" id="placeOrder">
+                Place Order · <span id="placeOrderTotal">Rs 0</span>
+              </button>
+            </form>
+          </section>
+
+          <!-- Summary -->
+          <aside class="checkout-summary" id="summary">
+            <h2>Order Summary</h2>
+            <ul class="summary-list" id="summaryList"></ul>
+            <div class="summary-totals">
+              <div><span>Subtotal</span><span id="summarySubtotal">Rs 0</span></div>
+              <div><span>Delivery fee</span><span id="summaryFee">Rs 0</span></div>
+              <div class="summary-total"><span>Total</span><span id="summaryTotal">Rs 0</span></div>
+            </div>
+            <p class="summary-note">Pay on delivery / pickup · No online payment required</p>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-bottom">© <span id="year"></span> Dera Karahi. All rights reserved.</div>
+  </footer>
+
+  <script src="js/common.js"></script>
+  <script src="js/checkout.js"></script>
+</body>
+</html>
