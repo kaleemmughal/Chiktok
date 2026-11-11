@@ -4,7 +4,7 @@
 
 document.addEventListener("DOMContentLoaded", init);
 
-let menu = [];
+let menu = { categories: [], menu_items: [] };
 let orderType = "delivery";
 let lines = [];
 let subtotal = 0;
@@ -41,7 +41,7 @@ async function init() {
   }
 }
 
-/* ---------- Totals (prices always from menu.json) ---------- */
+/* ---------- Totals (prices always from Supabase) ---------- */
 function computeTotals() {
   lines = getCart()
     .map((entry) => {

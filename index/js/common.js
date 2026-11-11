@@ -4,7 +4,7 @@
    ------------------------------------------------------------
    Important: the cart stored in localStorage contains ONLY
    { id, quantity } pairs. Prices are NEVER persisted client-side
-   — they are always resolved from data/menu.json at render time.
+   — they are always resolved from Supabase at render time.
    ============================================================ */
 
 const CART_KEY = "dera-karahi-cart";
@@ -14,7 +14,8 @@ const CONFIG = {
   restaurantName: "Dera Karahi",
   tagline: "Authentic Desi Karahi, Served Sizzling Hot",
   currencySymbol: "Rs",
-  menuUrl: "data/menu.json",
+  supabaseUrl: "https://gwvzjazdwrkuzuijjzrb.supabase.co",
+  supabaseKey: "sb_publishable_2CggYIxbMk87FfYKc2Xt5A_RdNTGjjZ",
 
   // Ordering rules (edit these freely)
   deliveryFee: 150,
@@ -30,9 +31,37 @@ const CONFIG = {
   deliveryTime: "40–50 min",
 };
 
+/* ---------- Supabase Client ---------- */
+const supabaseClient =
+  typeof window !== "undefined" && window.supabase?.createClient
+    ? window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey)
+    : null;
+
+if (typeof window !== "undefined") {
+  window.supabaseClient = supabaseClient;
+  // Also expose helper on window.supabase for browser console access
+  if (window.supabase && supabaseClient) {
+    if (!window.supabase.from) {
+      window.supabase.from = (...args) => supabaseClient.from(...args);
+    }
+    if (!window.supabase.auth) {
+      window.supabase.auth = supabaseClient.auth;
+    }
+  }
+}
+
 /* ---------- Formatting ---------- */
 function formatPrice(n) {
   return CONFIG.currencySymbol + " " + Number(n).toLocaleString("en-PK");
+}
+
+function escapeHTML(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function imgUrl(url, w = 640) {
@@ -94,17 +123,62 @@ function clearCart() {
   updateCartBadge();
 }
 
-/* ---------- Menu loading ---------- */
+/* ---------- Menu loading (via Supabase) ---------- */
 async function loadMenu() {
-  const res = await fetch(CONFIG.menuUrl);
-  if (!res.ok) throw new Error("Failed to load menu (HTTP " + res.status + ")");
-  const data = await res.json();
-  if (!Array.isArray(data)) throw new Error("Menu data is not an array");
-  return data;
+  const client =
+    supabaseClient ||
+    (typeof window !== "undefined" && window.supabase?.createClient
+      ? (window.supabaseClient = window.supabase.createClient(
+          CONFIG.supabaseUrl,
+          CONFIG.supabaseKey
+        ))
+      : null);
+
+  if (!client) {
+    throw new Error(
+      "Supabase client is not initialized. Please ensure the Supabase CDN script is included."
+    );
+  }
+
+  // Fetch categories (ordered by sort_order) and available menu items (ordered by id)
+  const [categoriesRes, menuItemsRes] = await Promise.all([
+    client
+      .from("categories")
+      .select("id, name, sort_order")
+      .order("sort_order", { ascending: true }),
+    client
+      .from("menu_items")
+      .select("id, category_id, name, description, price, image_url, is_available")
+      .eq("is_available", true)
+      .order("id", { ascending: true }),
+  ]);
+
+  if (categoriesRes.error) {
+    console.error("Error fetching categories:", categoriesRes.error);
+    throw categoriesRes.error;
+  }
+
+  if (menuItemsRes.error) {
+    console.error("Error fetching menu items:", menuItemsRes.error);
+    throw menuItemsRes.error;
+  }
+
+  return {
+    categories: categoriesRes.data || [],
+    menu_items: menuItemsRes.data || [],
+  };
 }
 
-function getItemById(items, id) {
-  return items.find((i) => String(i.id) === String(id));
+function getMenuItems(menu) {
+  return Array.isArray(menu?.menu_items) ? menu.menu_items : [];
+}
+
+function getCategoryById(menu, id) {
+  return (menu?.categories || []).find((c) => String(c.id) === String(id)) || null;
+}
+
+function getItemById(menu, id) {
+  return getMenuItems(menu).find((i) => String(i.id) === String(id));
 }
 
 /* ---------- Cart badge UI ---------- */

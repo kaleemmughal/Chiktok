@@ -4,8 +4,8 @@
 
 document.addEventListener("DOMContentLoaded", init);
 
-let menu = [];
-let activeCategory = "All";
+let menu = { categories: [], menu_items: [] };
+let activeCategoryId = null;
 
 const grid = document.getElementById("menuGrid");
 const categoryTabs = document.getElementById("categories");
@@ -22,35 +22,38 @@ async function init() {
     renderMenu();
     renderCartDrawer();
   } catch (err) {
-    console.error(err);
-    grid.innerHTML =
-      '<div class="load-error">Could not load the menu. Please make sure the site is served over HTTP (e.g. <code>python -m http.server</code>) and that <code>data/menu.json</code> exists.</div>';
+    console.error("Failed to load menu from Supabase:", err);
+    const detail = err?.message || (typeof err === "string" ? err : "");
+    grid.innerHTML = `
+      <div class="load-error">
+        <p><strong>Could not load the menu from Supabase.</strong></p>
+        ${detail ? `<p style="margin-top:8px;font-size:0.88em;">Details: <code>${escapeHTML(detail)}</code></p>` : ""}
+        <p style="margin-top:8px;font-size:0.82em;">If this is a permission error, run the RLS / SELECT grant query in your Supabase SQL Editor.</p>
+      </div>`;
   }
 }
 
 /* ---------- Categories ---------- */
 function renderCategories() {
-  const categories = ["All"];
-  menu.forEach((item) => {
-    if (item.category && !categories.includes(item.category)) {
-      categories.push(item.category);
-    }
-  });
+  const categories = [
+    { id: null, name: "All" },
+    ...[...menu.categories].sort((a, b) => a.sort_order - b.sort_order),
+  ];
 
   categoryTabs.innerHTML = categories
-    .map(
-      (cat) =>
-        `<button class="cat-tab${cat === activeCategory ? " active" : ""}" data-category="${cat}" role="tab" aria-selected="${cat === activeCategory}">${cat}</button>`
-    )
+    .map((cat) => {
+      const isActive = cat.id === activeCategoryId;
+      return `<button class="cat-tab${isActive ? " active" : ""}" data-category-id="${cat.id ?? ""}" role="tab" aria-selected="${isActive}">${cat.name}</button>`;
+    })
     .join("");
 }
 
 /* ---------- Menu rendering ---------- */
 function renderMenu() {
   const items =
-    activeCategory === "All"
-      ? menu
-      : menu.filter((i) => i.category === activeCategory);
+    activeCategoryId === null
+      ? menu.menu_items
+      : menu.menu_items.filter((i) => i.category_id === activeCategoryId);
 
   if (items.length === 0) {
     grid.innerHTML =
@@ -63,18 +66,20 @@ function renderMenu() {
 
 function cardHTML(item) {
   const qty = getCartQuantity(item.id);
-  const actions = !item.available
+  const available = item.is_available !== false;
+  const category = getCategoryById(menu, item.category_id);
+  const actions = !available
     ? '<button class="btn-add" disabled>Sold Out</button>'
     : qty > 0
     ? stepperHTML(item.id, qty)
     : `<button class="btn-add" data-add="${item.id}">Add +</button>`;
 
   return `
-    <article class="card${item.available ? "" : " card--soldout"}" data-id="${item.id}">
+    <article class="card${available ? "" : " card--soldout"}" data-id="${item.id}">
       <div class="card-media">
-        <img src="${imgUrl(item.image)}" alt="${item.name}" loading="lazy"
+        <img src="${imgUrl(item.image_url)}" alt="${item.name}" loading="lazy"
              onerror="this.closest('.card-media').classList.add('no-img'); this.remove();" />
-        <span class="card-badge">${item.category}</span>
+        <span class="card-badge">${category ? category.name : ""}</span>
       </div>
       <div class="card-body">
         <h3 class="card-title">${item.name}</h3>
@@ -112,7 +117,8 @@ function bindMenuEvents() {
   categoryTabs.addEventListener("click", (e) => {
     const btn = e.target.closest(".cat-tab");
     if (!btn) return;
-    activeCategory = btn.dataset.category;
+    const categoryId = btn.dataset.categoryId;
+    activeCategoryId = categoryId === "" ? null : Number(categoryId);
     categoryTabs
       .querySelectorAll(".cat-tab")
       .forEach((b) => b.classList.toggle("active", b === btn));
@@ -244,7 +250,7 @@ function renderCartDrawer() {
     .map(
       (l) => `
       <li class="cart-item" data-id="${l.id}">
-        <img src="${imgUrl(l.image, 120)}" alt="${l.name}" onerror="this.remove();" />
+        <img src="${imgUrl(l.image_url, 120)}" alt="${l.name}" onerror="this.remove();" />
         <div class="cart-item-info">
           <h4>${l.name}</h4>
           <span class="cart-item-price">${formatPrice(l.price)} each</span>
