@@ -89,9 +89,10 @@ export async function onRequestPost({ request, env }) {
     },
   });
 
-  if (!supabaseRes.ok) {
-    return json({ error: "Could not load menu items right now." }, 500);
-  }
+if (!supabaseRes.ok) {
+  const detail = await supabaseRes.text();
+  return json({ error: "Supabase said no", status: supabaseRes.status, detail: detail }, 500);
+}
 
   const menuItems = await supabaseRes.json();
 
