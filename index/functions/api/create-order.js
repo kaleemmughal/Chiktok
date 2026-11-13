@@ -128,11 +128,18 @@ export async function onRequestPost(context) {
     })
   });
 
-  if (!orderRes.ok) {
-    const errText = await orderRes.text();
-    console.error("Order insert failed:", errText);
-    return Response.json({ error: "Could not save order." }, { status: 500 });
-  }
+if (!orderRes.ok) {
+  const errText = await orderRes.text();
+  console.error("Order insert failed:", errText);
+
+  return Response.json(
+    {
+      error: "Could not save order.",
+      details: errText
+    },
+    { status: 500 }
+  );
+}
 
   const [createdOrder] = await orderRes.json();
 
