@@ -29,8 +29,107 @@
 
   <main class="page-shell">
     <div class="container">
-      <h1 class="page-title">Admin</h1>
-      <!-- Admin content will go here. -->
+      <!-- Section 1: Login UI (Visible by default) -->
+      <section id="login-section">
+        <div class="admin-login-wrap">
+          <div class="admin-login-card">
+            <div class="admin-login-header">
+              <span class="admin-badge">🔐 Admin Portal</span>
+              <h2>Admin Sign In</h2>
+              <p>Enter your email and password to access the management dashboard.</p>
+            </div>
+
+            <form id="login-form" novalidate>
+              <div class="field">
+                <label for="email">Email</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="admin@derakarahi.pk"
+                  autocomplete="email"
+                  required
+                />
+              </div>
+
+              <div class="field">
+                <label for="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  autocomplete="current-password"
+                  required
+                />
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-block" id="login-button">
+                Log In
+              </button>
+
+              <div id="login-error" class="form-error" role="alert" aria-live="assertive" hidden></div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Admin Dashboard (Hidden until authenticated) -->
+      <section id="admin-dashboard" hidden>
+        <header class="admin-dashboard-header">
+          <div class="admin-welcome">
+            <h1 class="page-title">Admin Dashboard</h1>
+            <p id="logged-in-as" class="admin-user-status">Logged in as <strong id="user-email"></strong></p>
+          </div>
+          <div class="admin-header-actions">
+            <button type="button" id="logout-button" class="btn btn-ghost">Log Out</button>
+          </div>
+        </header>
+
+        <div class="admin-grid">
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon">🍲</div>
+            <div class="admin-stat-info">
+              <h3>Restaurant</h3>
+              <div class="stat-value">Dera Karahi</div>
+            </div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon">📋</div>
+            <div class="admin-stat-info">
+              <h3>Menu Items</h3>
+              <div class="stat-value" id="stat-menu-count">—</div>
+            </div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-icon">🟢</div>
+            <div class="admin-stat-info">
+              <h3>System Status</h3>
+              <div class="stat-value">Online</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-header">
+            <h2>Quick Actions</h2>
+          </div>
+          <div class="confirm-actions" style="justify-content: flex-start;">
+            <a href="index.html" class="btn btn-ghost">Browse Menu</a>
+            <a href="track.html" class="btn btn-ghost">Track Orders</a>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <div class="admin-card-header">
+            <h2>Menu Overview</h2>
+            <button type="button" id="refresh-menu-btn" class="btn btn-ghost btn-sm">↻ Refresh</button>
+          </div>
+          <div id="admin-menu-container">
+            <p class="text-muted">Loading menu items...</p>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 
@@ -40,9 +139,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/common.js"></script>
-  <script>
-    document.getElementById("year").textContent = new Date().getFullYear();
-  </script>
-  <!-- Page-specific scripts will go here. -->
+  <script src="js/admin.js"></script>
 </body>
 </html>
