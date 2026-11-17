@@ -209,13 +209,91 @@
       return;
     }
 
-    // 1. Listen for auth state changes using Supabase Auth session listener
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (session && session.user) {
+    // ---------- Admin role verification ----------
+    const ACCESS_DENIED_MESSAGE = "Access denied: This account does not have admin privileges.";
+
+    // Guards against stale async role checks revealing the dashboard after a newer check
+    let roleCheckId = 0;
+    // User id whose admin role has already been confirmed during this page lifetime
+    let verifiedAdminUserId = null;
+
+    // Called whenever a session is active: the dashboard is only revealed for role === "admin"
+    async function handleActiveSession(session) {
+      const userId = session && session.user ? session.user.id : null;
+
+      if (!userId) {
+        hideAdminContent();
+        return;
+      }
+
+      // Already verified in this page load — just keep the dashboard visible
+      if (verifiedAdminUserId === userId) {
+        showAdminContent(session);
+        return;
+      }
+
+      const checkId = ++roleCheckId;
+
+      // Keep admin content hidden until the role has been confirmed
+      hideAdminContent();
+
+      let isAdmin = false;
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .single();
+
+        if (error) {
+          console.error("Error verifying admin role:", error);
+        } else if (data && data.role === "admin") {
+          isAdmin = true;
+        }
+      } catch (err) {
+        console.error("Admin role check exception:", err);
+        isAdmin = false;
+      }
+
+      // A newer session check started while this one was in flight
+      if (checkId !== roleCheckId) return;
+
+      if (isAdmin) {
+        verifiedAdminUserId = userId;
         showAdminContent(session);
       } else {
-        hideAdminContent();
+        verifiedAdminUserId = null;
+        await denyAccess(checkId);
       }
+    }
+
+    // Signs the non-admin user out, keeps the dashboard hidden and reports why
+    async function denyAccess(checkId) {
+      hideAdminContent();
+
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.error("Sign out after failed admin check exception:", err);
+      }
+
+      if (typeof checkId === "number" && checkId !== roleCheckId) return;
+
+      hideAdminContent();
+      showLoginError(ACCESS_DENIED_MESSAGE);
+    }
+
+    // 1. Listen for auth state changes using Supabase Auth session listener
+    supabase.auth.onAuthStateChange((event, session) => {
+      // Defer the async role lookup so it never runs inside the auth callback
+      window.setTimeout(function () {
+        if (session && session.user) {
+          handleActiveSession(session);
+        } else {
+          verifiedAdminUserId = null;
+          hideAdminContent();
+        }
+      }, 0);
     });
 
     // 2. Check the existing session when the page loads so refreshing does not log out
@@ -229,7 +307,7 @@
         }
 
         if (data && data.session && data.session.user) {
-          showAdminContent(data.session);
+          await handleActiveSession(data.session);
         } else {
           hideAdminContent();
         }
@@ -278,7 +356,7 @@
 
           if (data && data.session) {
             if (passwordInput) passwordInput.value = "";
-            showAdminContent(data.session);
+            await handleActiveSession(data.session);
           }
         } catch (err) {
           console.error("Sign in exception:", err);
