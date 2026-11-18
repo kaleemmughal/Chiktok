@@ -110,6 +110,27 @@
           </div>
         </div>
 
+        <div class="admin-card admin-orders-card">
+          <div class="admin-card-header admin-orders-header">
+            <div class="admin-orders-heading">
+              <h2>Kitchen Orders</h2>
+              <p class="admin-orders-subtitle">Newest orders first · updates when you refresh</p>
+            </div>
+            <button type="button" id="refresh-orders-btn" class="btn btn-ghost btn-sm">Refresh</button>
+          </div>
+
+          <div class="order-filters" id="order-filters" role="group" aria-label="Filter orders">
+            <button type="button" class="order-filter-pill is-active" data-order-filter="active" aria-pressed="true">Active</button>
+            <button type="button" class="order-filter-pill" data-order-filter="completed" aria-pressed="false">Completed</button>
+            <button type="button" class="order-filter-pill" data-order-filter="all" aria-pressed="false">All</button>
+            <span id="orders-count" class="orders-count" aria-live="polite"></span>
+          </div>
+
+          <div id="admin-orders-container" class="order-cards" aria-live="polite" aria-busy="false">
+            <p class="text-muted">Loading orders…</p>
+          </div>
+        </div>
+
         <div class="admin-card">
           <div class="admin-card-header">
             <h2>Quick Actions</h2>

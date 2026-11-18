@@ -106,6 +106,368 @@
     const escapeHTML = getEscapeHTML();
     let isOverviewLoaded = false;
 
+    // ---------- Kitchen Orders ----------
+    const ordersContainer = document.getElementById("admin-orders-container");
+    const ordersCountEl = document.getElementById("orders-count");
+    const refreshOrdersBtn = document.getElementById("refresh-orders-btn");
+    const orderFilterButtons = Array.prototype.slice.call(
+      document.querySelectorAll("[data-order-filter]")
+    );
+
+    const ACTIVE_ORDER_STATUSES = ["received", "accepted", "preparing", "out_for_delivery"];
+    const COMPLETED_ORDER_STATUSES = ["delivered", "rejected"];
+    const ORDER_STATUS_META = {
+      received: { label: "Received", modifier: "received" },
+      accepted: { label: "Accepted", modifier: "accepted" },
+      preparing: { label: "Preparing", modifier: "preparing" },
+      out_for_delivery: { label: "Out for Delivery", modifier: "out-for-delivery" },
+      delivered: { label: "Delivered", modifier: "delivered" },
+      rejected: { label: "Rejected", modifier: "rejected" },
+    };
+
+    let orders = [];
+    let currentOrderFilter = "active";
+    let ordersHaveLoaded = false;
+    let isOrdersLoading = false;
+    let ordersRequestId = 0;
+
+    function makeElement(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = String(text);
+      return node;
+    }
+
+    function toOrderAmount(value, fallback) {
+      const amount = Number(value);
+      return Number.isFinite(amount) ? amount : fallback;
+    }
+
+    function formatOrderMoney(value) {
+      const amount = toOrderAmount(value, 0);
+      if (typeof window.formatPrice === "function") {
+        return window.formatPrice(amount);
+      }
+      return "Rs " + amount.toLocaleString("en-PK");
+    }
+
+    function normalizeOrderStatus(value) {
+      return (
+        String(value || "unknown")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_") || "unknown"
+      );
+    }
+
+    function getOrderStatusMeta(status) {
+      return ORDER_STATUS_META[status] || { label: "Unknown", modifier: "unknown" };
+    }
+
+    function formatRelativeTime(date) {
+      const diffSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+      if (diffSeconds < 60) return "just now";
+
+      const minutes = Math.floor(diffSeconds / 60);
+      if (minutes < 60) return minutes + (minutes === 1 ? " min ago" : " mins ago");
+
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + (hours === 1 ? " hr ago" : " hrs ago");
+
+      const days = Math.floor(hours / 24);
+      return days + (days === 1 ? " day ago" : " days ago");
+    }
+
+    function getOrderTimeParts(value) {
+      const date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) {
+        return { time: "Time unavailable", relative: "" };
+      }
+
+      return {
+        time: date.toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }),
+        relative: formatRelativeTime(date),
+      };
+    }
+
+    function getTelephoneHref(phone) {
+      const digits = String(phone || "").replace(/[^\d+]/g, "");
+      return digits ? "tel:" + digits : "";
+    }
+
+    function appendOrderTotal(parent, label, value, modifier) {
+      const row = makeElement(
+        "div",
+        "order-total-row" + (modifier ? " order-total-row--" + modifier : "")
+      );
+      const valueTag = modifier === "grand" ? "strong" : "span";
+      row.appendChild(makeElement("span", "order-total-label", label));
+      row.appendChild(makeElement(valueTag, "order-total-value", value));
+      parent.appendChild(row);
+    }
+
+    function buildOrderCard(order) {
+      const safeOrder = order || {};
+      const status = normalizeOrderStatus(safeOrder.status);
+      const statusMeta = getOrderStatusMeta(status);
+      const rawType = String(safeOrder.order_type || "").trim().toLowerCase();
+      const typeLabel =
+        rawType === "delivery"
+          ? "DELIVERY"
+          : rawType === "pickup"
+          ? "PICKUP"
+          : rawType
+          ? rawType.toUpperCase()
+          : "—";
+      const typeModifier =
+        rawType === "delivery" ? "delivery" : rawType === "pickup" ? "pickup" : "unknown";
+      const timeParts = getOrderTimeParts(safeOrder.created_at);
+
+      const card = makeElement("article", "order-card order-card--" + statusMeta.modifier);
+      card.setAttribute("data-status", status);
+
+      const head = makeElement("div", "order-card-head");
+      const title = makeElement("div", "order-card-title");
+      const orderNumber = safeOrder.order_number ?? safeOrder.id ?? "—";
+      title.appendChild(makeElement("h3", "order-number", "#" + orderNumber));
+
+      const timeEl = makeElement("span", "order-time", timeParts.time);
+      if (timeParts.relative) {
+        timeEl.appendChild(makeElement("span", "order-relative", " · " + timeParts.relative));
+      }
+      title.appendChild(timeEl);
+
+      const badges = makeElement("div", "order-card-badges");
+      badges.appendChild(
+        makeElement(
+          "span",
+          "order-status order-status--" + statusMeta.modifier,
+          statusMeta.label
+        )
+      );
+      badges.appendChild(
+        makeElement("span", "order-type-badge order-type-badge--" + typeModifier, typeLabel)
+      );
+
+      head.append(title, badges);
+      card.appendChild(head);
+
+      const body = makeElement("div", "order-card-body");
+
+      // Customer details — every value below is inserted with textContent only.
+      const customer = makeElement("div", "order-customer");
+      const customerName = String(safeOrder.customer_name || "").trim() || "Customer";
+      customer.appendChild(makeElement("div", "order-customer-name", customerName));
+
+      const phone = String(safeOrder.phone || "").trim();
+      if (phone) {
+        const telHref = getTelephoneHref(phone);
+        if (telHref) {
+          const phoneLink = makeElement("a", "order-phone", phone);
+          phoneLink.href = telHref;
+          customer.appendChild(phoneLink);
+        } else {
+          customer.appendChild(makeElement("span", "order-phone", phone));
+        }
+      }
+
+      if (rawType === "delivery") {
+        const address = String(safeOrder.address || "").trim();
+        if (address) {
+          customer.appendChild(makeElement("p", "order-address", address));
+        }
+      }
+
+      const notes = String(safeOrder.notes || "").trim();
+      if (notes) {
+        const note = makeElement("div", "order-note");
+        note.appendChild(makeElement("strong", "", "Note: "));
+        note.appendChild(makeElement("span", "order-note-text", notes));
+        customer.appendChild(note);
+      }
+
+      body.appendChild(customer);
+
+      const orderItems = Array.isArray(safeOrder.order_items) ? safeOrder.order_items : [];
+      const itemsList = makeElement("ul", "order-items");
+
+      if (orderItems.length === 0) {
+        itemsList.appendChild(
+          makeElement("li", "order-item order-item--missing", "No items recorded")
+        );
+      } else {
+        orderItems.forEach(function (item) {
+          const safeItem = item || {};
+          const quantity = Math.max(0, Number(safeItem.quantity) || 0);
+          const unitPrice = toOrderAmount(safeItem.unit_price, 0);
+          const row = makeElement("li", "order-item");
+
+          row.appendChild(makeElement("span", "order-item-qty", quantity + "x "));
+          row.appendChild(makeElement("span", "order-item-name", safeItem.name || "Item"));
+          row.appendChild(makeElement("span", "order-item-dash", " — "));
+          row.appendChild(
+            makeElement("span", "order-item-price", formatOrderMoney(unitPrice * quantity))
+          );
+          itemsList.appendChild(row);
+        });
+      }
+
+      body.appendChild(itemsList);
+
+      const itemsSubtotal = orderItems.reduce(function (sum, item) {
+        const safeItem = item || {};
+        const quantity = Math.max(0, Number(safeItem.quantity) || 0);
+        return sum + toOrderAmount(safeItem.unit_price, 0) * quantity;
+      }, 0);
+      const subtotal = toOrderAmount(safeOrder.subtotal, itemsSubtotal);
+      const deliveryFee = toOrderAmount(safeOrder.delivery_fee, 0);
+      const discount = toOrderAmount(safeOrder.discount, 0);
+      const total = toOrderAmount(safeOrder.total, subtotal + deliveryFee - discount);
+
+      const totals = makeElement("div", "order-totals");
+      appendOrderTotal(totals, "Subtotal", formatOrderMoney(subtotal));
+      appendOrderTotal(
+        totals,
+        "Delivery fee",
+        deliveryFee > 0 ? formatOrderMoney(deliveryFee) : "Free"
+      );
+      appendOrderTotal(
+        totals,
+        "Discount",
+        discount > 0 ? "- " + formatOrderMoney(discount) : formatOrderMoney(0)
+      );
+      appendOrderTotal(totals, "Total", formatOrderMoney(total), "grand");
+      body.appendChild(totals);
+
+      card.appendChild(body);
+      return card;
+    }
+
+    function getFilteredOrders() {
+      if (currentOrderFilter === "all") return orders;
+
+      const allowed =
+        currentOrderFilter === "completed"
+          ? COMPLETED_ORDER_STATUSES
+          : ACTIVE_ORDER_STATUSES;
+
+      return orders.filter(function (order) {
+        return allowed.indexOf(normalizeOrderStatus(order && order.status)) !== -1;
+      });
+    }
+
+    function renderOrdersMessage(message) {
+      if (!ordersContainer) return;
+      ordersContainer.textContent = "";
+      ordersContainer.appendChild(makeElement("p", "order-empty", message));
+    }
+
+    function renderOrders() {
+      if (!ordersContainer) return;
+
+      const filteredOrders = getFilteredOrders();
+      ordersContainer.textContent = "";
+
+      if (ordersCountEl) {
+        const noun = filteredOrders.length === 1 ? "order" : "orders";
+        let qualifier = "";
+        if (currentOrderFilter === "active") qualifier = "active ";
+        else if (currentOrderFilter === "completed") qualifier = "completed ";
+        ordersCountEl.textContent = filteredOrders.length + " " + qualifier + noun;
+      }
+
+      if (filteredOrders.length === 0) {
+        let message = "No orders yet.";
+        if (orders.length > 0 && currentOrderFilter === "active") {
+          message = "No active orders right now.";
+        } else if (orders.length > 0 && currentOrderFilter === "completed") {
+          message = "No completed orders yet.";
+        }
+        renderOrdersMessage(message);
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      filteredOrders.forEach(function (order) {
+        fragment.appendChild(buildOrderCard(order));
+      });
+      ordersContainer.appendChild(fragment);
+    }
+
+    async function loadAdminOrders(force) {
+      if (!ordersContainer || !supabase) return;
+      if (isOrdersLoading) return;
+      if (ordersHaveLoaded && !force) return;
+
+      const requestId = ++ordersRequestId;
+      isOrdersLoading = true;
+      ordersContainer.setAttribute("aria-busy", "true");
+
+      if (refreshOrdersBtn) {
+        refreshOrdersBtn.disabled = true;
+        refreshOrdersBtn.textContent = "Refreshing…";
+      }
+      if (!ordersHaveLoaded) {
+        renderOrdersMessage("Loading orders…");
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("orders")
+          .select("*, order_items(*)")
+          .order("created_at", { ascending: false })
+          .limit(100);
+
+        if (requestId !== ordersRequestId) return;
+        if (error) throw error;
+
+        orders = Array.isArray(data) ? data : [];
+        ordersHaveLoaded = true;
+        renderOrders();
+      } catch (err) {
+        if (requestId !== ordersRequestId) return;
+        console.error("Could not load orders in admin:", err);
+        ordersHaveLoaded = false;
+        if (ordersCountEl) ordersCountEl.textContent = "";
+        renderOrdersMessage("Could not load orders. Use Refresh to try again.");
+      } finally {
+        if (requestId === ordersRequestId) {
+          isOrdersLoading = false;
+          ordersContainer.setAttribute("aria-busy", "false");
+          if (refreshOrdersBtn) {
+            refreshOrdersBtn.disabled = false;
+            refreshOrdersBtn.textContent = "Refresh";
+          }
+        }
+      }
+    }
+
+    orderFilterButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        currentOrderFilter = button.getAttribute("data-order-filter") || "active";
+
+        orderFilterButtons.forEach(function (otherButton) {
+          const isActive = otherButton === button;
+          otherButton.classList.toggle("is-active", isActive);
+          otherButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+
+        if (ordersHaveLoaded && !isOrdersLoading) {
+          renderOrders();
+        }
+      });
+    });
+
+    if (refreshOrdersBtn) {
+      refreshOrdersBtn.addEventListener("click", function () {
+        loadAdminOrders(true);
+      });
+    }
+
     // Immediately hide admin content when there is no valid session
     hideAdminContent();
 
@@ -141,11 +503,25 @@
       // Clear any pending login errors
       clearLoginError();
 
-      // Optionally load admin dashboard menu preview
+      // Load the kitchen queue and the menu preview for a verified admin
+      loadAdminOrders();
       loadAdminOverview();
     }
 
     function hideAdminContent() {
+      // Invalidate any in-flight order request and clear cached order data
+      ordersRequestId += 1;
+      isOrdersLoading = false;
+      orders = [];
+      ordersHaveLoaded = false;
+      if (ordersContainer) {
+        ordersContainer.setAttribute("aria-busy", "false");
+      }
+      if (refreshOrdersBtn) {
+        refreshOrdersBtn.disabled = false;
+        refreshOrdersBtn.textContent = "Refresh";
+      }
+
       // Hide admin content immediately when there is no valid session
       if (adminDashboard) {
         adminDashboard.hidden = true;
