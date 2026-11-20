@@ -76,6 +76,22 @@
 
       <!-- Section 2: Admin Dashboard (Hidden until authenticated) -->
       <section id="admin-dashboard" hidden>
+        <!-- Realtime Live Orders Banner -->
+        <div class="admin-live-banner" id="admin-live-banner">
+          <div class="admin-live-banner-info">
+            <div class="live-status-pill" id="live-indicator" title="Realtime connection active">
+              <span class="live-dot" aria-hidden="true"></span>
+              <span class="live-text">LIVE</span>
+            </div>
+            <span class="admin-live-banner-text">Realtime Kitchen Feed</span>
+          </div>
+          <div class="admin-live-banner-actions">
+            <button type="button" id="start-orders-btn" class="btn btn-primary admin-live-btn">
+              Start Taking Orders (Enable Sound)
+            </button>
+          </div>
+        </div>
+
         <header class="admin-dashboard-header">
           <div class="admin-welcome">
             <h1 class="page-title">Admin Dashboard</h1>

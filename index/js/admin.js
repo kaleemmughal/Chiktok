@@ -30,6 +30,11 @@
     "loginError": "login-error",
     "admin-user-email": "user-email",
     "admin-email": "user-email",
+    "start-orders-btn": "start-taking-orders-btn",
+    "start-taking-orders-btn": "start-orders-btn",
+    "startOrdersBtn": "start-orders-btn",
+    "live-indicator": "live-status-indicator",
+    "live-status-indicator": "live-indicator",
   };
 
   const origGetElementById = document.getElementById.bind(document);
@@ -102,11 +107,112 @@
     const logoutButton = document.getElementById("logout-button");
     const userEmailEl = document.getElementById("user-email");
     const loggedInAsEl = document.getElementById("logged-in-as");
+    const startOrdersBtn = document.getElementById("start-orders-btn");
+    const liveIndicator = document.getElementById("live-indicator");
 
     const escapeHTML = getEscapeHTML();
     let isOverviewLoaded = false;
 
-    // ---------- Kitchen Orders ----------
+    // ---------- Web Audio API Synthesized Bells (No External MP3) ----------
+    let audioCtx = null;
+    let isAudioUnlocked = false;
+
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      return audioCtx;
+    }
+
+    function unlockAudioContext() {
+      const ctx = getAudioContext();
+      if (ctx && ctx.state === "suspended") {
+        ctx.resume().catch(function (err) {
+          console.warn("AudioContext resume failed:", err);
+        });
+      }
+      isAudioUnlocked = true;
+      return ctx;
+    }
+
+    function playBellTone(ctx, freq, startTime, duration, maxGain) {
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, startTime);
+
+        gain.gain.setValueAtTime(0.0001, startTime);
+        gain.gain.exponentialRampToValueAtTime(maxGain, startTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration + 0.05);
+      } catch (err) {
+        console.warn("Audio playback error:", err);
+      }
+    }
+
+    // Short pleasant ascending confirmation chime for button activation
+    function playConfirmationChime() {
+      const ctx = unlockAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      // 2-tone ascending confirmation chime
+      playBellTone(ctx, 523.25, now, 0.2, 0.45);        // C5
+      playBellTone(ctx, 783.99, now + 0.12, 0.35, 0.5); // G5
+    }
+
+    // Clear, loud 2-tone kitchen service bell function (Ding-Dong)
+    function playOrderBell() {
+      const ctx = unlockAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+
+      // Tone 1: High crisp ding (~880Hz / A5) with metallic shimmer overtone
+      playBellTone(ctx, 880, now, 0.65, 0.75);
+      playBellTone(ctx, 1760, now, 0.45, 0.22);
+
+      // Tone 2: Rich lower dong (~659.25Hz / E5) starting after 0.32s
+      playBellTone(ctx, 659.25, now + 0.32, 0.85, 0.8);
+      playBellTone(ctx, 1318.5, now + 0.32, 0.55, 0.22);
+    }
+
+    // Expose globally for testing or external invocation
+    window.playOrderBell = playOrderBell;
+    window.playConfirmationChime = playConfirmationChime;
+
+    // ---------- Live Connection Status Indicator ----------
+    function updateLiveIndicator(state) {
+      const indicator = document.getElementById("live-indicator");
+      if (!indicator) return;
+
+      const textEl = indicator.querySelector(".live-text");
+      if (state === "live") {
+        indicator.classList.remove("is-offline");
+        if (textEl) textEl.textContent = "LIVE";
+        indicator.setAttribute("title", "Realtime connection active");
+      } else if (state === "connecting") {
+        indicator.classList.remove("is-offline");
+        if (textEl) textEl.textContent = "CONNECTING...";
+        indicator.setAttribute("title", "Connecting to live orders...");
+      } else {
+        indicator.classList.add("is-offline");
+        if (textEl) textEl.textContent = "OFFLINE";
+        indicator.setAttribute("title", "Realtime connection offline");
+      }
+    }
+
+    // ---------- Kitchen Orders State & Queue ----------
     const ordersContainer = document.getElementById("admin-orders-container");
     const ordersCountEl = document.getElementById("orders-count");
     const refreshOrdersBtn = document.getElementById("refresh-orders-btn");
@@ -130,6 +236,8 @@
     let ordersHaveLoaded = false;
     let isOrdersLoading = false;
     let ordersRequestId = 0;
+    let lastHighlightedOrderId = null;
+    let realtimeChannel = null;
 
     function makeElement(tag, className, text) {
       const node = document.createElement(tag);
@@ -229,6 +337,12 @@
 
       const card = makeElement("article", "order-card order-card--" + statusMeta.modifier);
       card.setAttribute("data-status", status);
+      if (safeOrder.id !== undefined && safeOrder.id !== null) {
+        card.setAttribute("data-order-id", String(safeOrder.id));
+      }
+      if (lastHighlightedOrderId && String(safeOrder.id) === String(lastHighlightedOrderId)) {
+        card.classList.add("order-card--highlight");
+      }
 
       const head = makeElement("div", "order-card-head");
       const title = makeElement("div", "order-card-title");
@@ -398,7 +512,197 @@
       ordersContainer.appendChild(fragment);
     }
 
+    function setOrderFilter(filterName) {
+      currentOrderFilter = filterName;
+      orderFilterButtons.forEach(function (button) {
+        const isActive = (button.getAttribute("data-order-filter") || "active") === filterName;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+      renderOrders();
+    }
+
+    function highlightOrderCard(orderId) {
+      lastHighlightedOrderId = orderId;
+      if (!ordersContainer) return;
+      const card = ordersContainer.querySelector(`[data-order-id="${orderId}"]`);
+      if (card) {
+        card.classList.remove("order-card--highlight");
+        // Force reflow to re-trigger CSS animation
+        void card.offsetWidth;
+        card.classList.add("order-card--highlight");
+        card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+
+    // Retries fetching full order with short delays if items are missing
+    async function fetchCompleteOrderWithRetries(orderId, maxAttempts) {
+      const attemptsLimit = typeof maxAttempts === "number" ? maxAttempts : 5;
+      const supabaseClient = getSupabaseClient();
+      if (!supabaseClient) return null;
+
+      const delays = [150, 300, 600, 1000, 1500];
+      let completeOrder = null;
+
+      for (let attempt = 0; attempt < attemptsLimit; attempt++) {
+        try {
+          const { data, error } = await supabaseClient
+            .from("orders")
+            .select("*, order_items(*)")
+            .eq("id", orderId)
+            .single();
+
+          if (!error && data) {
+            completeOrder = data;
+            // Complete order arrived with items populated
+            if (Array.isArray(data.order_items) && data.order_items.length > 0) {
+              return data;
+            }
+          }
+        } catch (err) {
+          console.warn("fetchCompleteOrderWithRetries attempt failed:", err);
+        }
+
+        if (attempt < attemptsLimit - 1) {
+          const waitMs = delays[attempt] || 400;
+          await new Promise(function (resolve) {
+            setTimeout(resolve, waitMs);
+          });
+        }
+      }
+
+      return completeOrder;
+    }
+
+    // Handles Realtime INSERT event on schema: 'public', table: 'orders'
+    async function handleRealtimeInsert(payload) {
+      if (!payload || !payload.new || !payload.new.id) return;
+      const orderId = payload.new.id;
+
+      // Fetch the complete order with retries if items are missing
+      const completeOrder = await fetchCompleteOrderWithRetries(orderId);
+      if (!completeOrder) {
+        console.warn("Could not retrieve complete order for id:", orderId);
+        return;
+      }
+
+      // Avoid duplicates if already rendered/present in orders list
+      const existingIdx = orders.findIndex(function (o) {
+        return String(o.id) === String(completeOrder.id);
+      });
+
+      if (existingIdx !== -1) {
+        orders[existingIdx] = completeOrder;
+      } else {
+        // Insert it at the top of the list
+        orders.unshift(completeOrder);
+      }
+
+      ordersHaveLoaded = true;
+
+      // Ensure active tab view displays the newly arrived active order
+      if (currentOrderFilter === "completed") {
+        setOrderFilter("active");
+      } else {
+        renderOrders();
+      }
+
+      // Highlight the new card and play the 2-tone kitchen bell
+      highlightOrderCard(completeOrder.id);
+      playOrderBell();
+    }
+
+    // Handles Realtime UPDATE event on schema: 'public', table: 'orders'
+    async function handleRealtimeUpdate(payload) {
+      if (!payload || !payload.new || !payload.new.id) return;
+      const updatedId = payload.new.id;
+
+      const existingIndex = orders.findIndex(function (o) {
+        return String(o.id) === String(updatedId);
+      });
+
+      if (existingIndex !== -1) {
+        const existing = orders[existingIndex];
+        // Merge updated columns while preserving order_items from existing order
+        orders[existingIndex] = {
+          ...existing,
+          ...payload.new,
+          order_items:
+            Array.isArray(payload.new.order_items) && payload.new.order_items.length > 0
+              ? payload.new.order_items
+              : existing.order_items || [],
+        };
+      } else {
+        // Order was not in memory, fetch with short retries
+        const fullOrder = await fetchCompleteOrderWithRetries(updatedId, 2);
+        if (fullOrder) {
+          orders.unshift(fullOrder);
+        }
+      }
+
+      // Update the existing order card and move it into the correct Active or Completed tab
+      renderOrders();
+      // Crucial: Do NOT play the new-order chime for updates
+    }
+
+    // Subscribes to Supabase Realtime postgres_changes
+    function subscribeToLiveOrders() {
+      if (realtimeChannel) return;
+
+      const supabaseClient = getSupabaseClient();
+      if (!supabaseClient || typeof supabaseClient.channel !== "function") {
+        console.warn("Supabase Realtime is not available.");
+        return;
+      }
+
+      updateLiveIndicator("connecting");
+
+      realtimeChannel = supabaseClient
+        .channel("admin-orders-realtime")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "orders" },
+          function (payload) {
+            handleRealtimeInsert(payload);
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "orders" },
+          function (payload) {
+            handleRealtimeUpdate(payload);
+          }
+        )
+        .subscribe(function (status, err) {
+          if (status === "SUBSCRIBED") {
+            updateLiveIndicator("live");
+          } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+            updateLiveIndicator("offline");
+            if (err) console.error("Realtime subscription error:", err);
+          }
+        });
+    }
+
+    // Cleanly unsubscribes from the Realtime channel on logout or session reset
+    function unsubscribeFromLiveOrders() {
+      if (realtimeChannel) {
+        try {
+          const supabaseClient = getSupabaseClient();
+          if (supabaseClient && typeof supabaseClient.removeChannel === "function") {
+            supabaseClient.removeChannel(realtimeChannel);
+          } else if (typeof realtimeChannel.unsubscribe === "function") {
+            realtimeChannel.unsubscribe();
+          }
+        } catch (e) {
+          console.warn("Error unsubscribing from realtime orders channel:", e);
+        }
+        realtimeChannel = null;
+      }
+      updateLiveIndicator("offline");
+    }
+
     async function loadAdminOrders(force) {
+      const supabase = getSupabaseClient();
       if (!ordersContainer || !supabase) return;
       if (isOrdersLoading) return;
       if (ordersHaveLoaded && !force) return;
@@ -448,23 +752,25 @@
 
     orderFilterButtons.forEach(function (button) {
       button.addEventListener("click", function () {
-        currentOrderFilter = button.getAttribute("data-order-filter") || "active";
-
-        orderFilterButtons.forEach(function (otherButton) {
-          const isActive = otherButton === button;
-          otherButton.classList.toggle("is-active", isActive);
-          otherButton.setAttribute("aria-pressed", isActive ? "true" : "false");
-        });
-
-        if (ordersHaveLoaded && !isOrdersLoading) {
-          renderOrders();
-        }
+        const filter = button.getAttribute("data-order-filter") || "active";
+        setOrderFilter(filter);
       });
     });
 
     if (refreshOrdersBtn) {
       refreshOrdersBtn.addEventListener("click", function () {
         loadAdminOrders(true);
+      });
+    }
+
+    // "Start Taking Orders (Enable Sound)" button interaction
+    if (startOrdersBtn) {
+      startOrdersBtn.addEventListener("click", function () {
+        unlockAudioContext();
+        playConfirmationChime();
+        startOrdersBtn.classList.add("is-active");
+        startOrdersBtn.setAttribute("data-sound-enabled", "true");
+        startOrdersBtn.innerHTML = "🔔 Taking Orders (Sound Active)";
       });
     }
 
@@ -506,6 +812,9 @@
       // Load the kitchen queue and the menu preview for a verified admin
       loadAdminOrders();
       loadAdminOverview();
+
+      // Start the Realtime subscription only after the existing admin role check confirms the user is an admin
+      subscribeToLiveOrders();
     }
 
     function hideAdminContent() {
@@ -521,6 +830,9 @@
         refreshOrdersBtn.disabled = false;
         refreshOrdersBtn.textContent = "Refresh";
       }
+
+      // Cleanly unsubscribe from the Realtime channel
+      unsubscribeFromLiveOrders();
 
       // Hide admin content immediately when there is no valid session
       if (adminDashboard) {
@@ -660,7 +972,7 @@
     }
 
     // 1. Listen for auth state changes using Supabase Auth session listener
-    supabase.auth.onAuthStateChange((event, session) => {
+    supabase.auth.onAuthStateChange(function (event, session) {
       // Defer the async role lookup so it never runs inside the auth callback
       window.setTimeout(function () {
         if (session && session.user) {
@@ -746,6 +1058,7 @@
     // 4. Logout action
     async function handleLogout() {
       try {
+        unsubscribeFromLiveOrders();
         if (logoutButton) {
           logoutButton.disabled = true;
           logoutButton.textContent = "Logging Out...";
