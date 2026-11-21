@@ -190,6 +190,10 @@
     // Expose globally for testing or external invocation
     window.playOrderBell = playOrderBell;
     window.playConfirmationChime = playConfirmationChime;
+    window.showToast = showToast;
+    window.showAdminToast = showToast;
+    window.handleOrderStatusUpdate = handleOrderStatusUpdate;
+    window.updateOrderStatus = handleOrderStatusUpdate;
 
     // ---------- Live Connection Status Indicator ----------
     function updateLiveIndicator(state) {
@@ -316,6 +320,120 @@
       row.appendChild(makeElement("span", "order-total-label", label));
       row.appendChild(makeElement(valueTag, "order-total-value", value));
       parent.appendChild(row);
+    }
+
+    // ---------- Admin Toast Notifications ----------
+    function showToast(message, type) {
+      const toastType = type || "error";
+      let container = document.getElementById("admin-toast-container");
+      if (!container) {
+        container = document.createElement("div");
+        container.id = "admin-toast-container";
+        container.className = "admin-toast-container";
+        container.setAttribute("aria-live", "assertive");
+        document.body.appendChild(container);
+      }
+
+      const toast = document.createElement("div");
+      toast.className = "admin-toast admin-toast--" + toastType + " toast toast--" + toastType;
+      toast.setAttribute("role", "alert");
+
+      const icon = toastType === "error" ? "⚠️ " : "✓ ";
+      const textSpan = document.createElement("span");
+      textSpan.className = "admin-toast-message";
+      textSpan.textContent = String(message || "");
+
+      toast.appendChild(document.createTextNode(icon));
+      toast.appendChild(textSpan);
+
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "admin-toast-close";
+      closeBtn.setAttribute("aria-label", "Close notification");
+      closeBtn.textContent = "×";
+      closeBtn.onclick = function () {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      };
+      toast.appendChild(closeBtn);
+
+      container.appendChild(toast);
+
+      setTimeout(function () {
+        toast.classList.add("is-leaving");
+        setTimeout(function () {
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+        }, 300);
+      }, 4500);
+    }
+
+    // ---------- Order Status Workflow Transition Handler ----------
+    async function handleOrderStatusUpdate(order, newStatus, clickedBtn) {
+      if (!order || order.id === undefined || order.id === null) return;
+
+      const orderId = order.id;
+
+      // Disable the clicked button and sibling action buttons on this card briefly
+      if (clickedBtn) {
+        clickedBtn.disabled = true;
+      }
+      const cardEl = ordersContainer
+        ? ordersContainer.querySelector(`[data-order-id="${orderId}"]`)
+        : null;
+      const allActionBtns = cardEl
+        ? Array.prototype.slice.call(cardEl.querySelectorAll(".order-card-actions button"))
+        : [];
+      allActionBtns.forEach(function (btn) {
+        btn.disabled = true;
+      });
+
+      const supabaseClient = getSupabaseClient() || window.supabaseClient;
+      if (!supabaseClient) {
+        allActionBtns.forEach(function (btn) {
+          btn.disabled = false;
+        });
+        if (clickedBtn) clickedBtn.disabled = false;
+        showToast("Database client is not available.", "error");
+        return;
+      }
+
+      try {
+        const { error } = await supabaseClient
+          .from('orders')
+          .update({ status: newStatus })
+          .eq('id', order.id);
+
+        if (error) {
+          throw error;
+        }
+
+        // Update local memory
+        const orderIndex = orders.findIndex(function (o) {
+          return String(o.id) === String(orderId);
+        });
+        if (orderIndex !== -1) {
+          orders[orderIndex] = {
+            ...orders[orderIndex],
+            status: newStatus,
+          };
+        }
+        order.status = newStatus;
+
+        // Update the card UI immediately (and move it between Active/Completed tabs cleanly)
+        renderOrders();
+      } catch (err) {
+        console.error("Order status update failed:", err);
+        allActionBtns.forEach(function (btn) {
+          btn.disabled = false;
+        });
+        if (clickedBtn) {
+          clickedBtn.disabled = false;
+        }
+        showToast(err.message || "Failed to update order status.", "error");
+      }
     }
 
     function buildOrderCard(order) {
@@ -456,6 +574,107 @@
       );
       appendOrderTotal(totals, "Total", formatOrderMoney(total), "grand");
       body.appendChild(totals);
+
+      // Workflow actions / buttons based on current status
+      const actions = makeElement("div", "order-card-actions");
+
+      if (status === "received") {
+        const acceptBtn = makeElement(
+          "button",
+          "btn btn-primary btn-sm order-action-btn",
+          "Accept Order"
+        );
+        acceptBtn.type = "button";
+        acceptBtn.setAttribute("data-action", "accept");
+        acceptBtn.setAttribute("data-target-status", "accepted");
+        acceptBtn.addEventListener("click", function () {
+          handleOrderStatusUpdate(safeOrder, "accepted", acceptBtn);
+        });
+
+        const rejectBtn = makeElement(
+          "button",
+          "btn btn-danger btn-sm order-action-btn",
+          "Reject"
+        );
+        rejectBtn.type = "button";
+        rejectBtn.setAttribute("data-action", "reject");
+        rejectBtn.setAttribute("data-target-status", "rejected");
+        rejectBtn.addEventListener("click", function () {
+          const confirmed = window.confirm("Are you sure you want to reject this order?");
+          if (!confirmed) return;
+          handleOrderStatusUpdate(safeOrder, "rejected", rejectBtn);
+        });
+
+        actions.appendChild(acceptBtn);
+        actions.appendChild(rejectBtn);
+      } else if (status === "accepted") {
+        const prepBtn = makeElement(
+          "button",
+          "btn btn-primary btn-sm order-action-btn",
+          "Start Preparing"
+        );
+        prepBtn.type = "button";
+        prepBtn.setAttribute("data-action", "start_preparing");
+        prepBtn.setAttribute("data-target-status", "preparing");
+        prepBtn.addEventListener("click", function () {
+          handleOrderStatusUpdate(safeOrder, "preparing", prepBtn);
+        });
+        actions.appendChild(prepBtn);
+      } else if (status === "preparing") {
+        if (rawType === "delivery") {
+          const outBtn = makeElement(
+            "button",
+            "btn btn-primary btn-sm order-action-btn",
+            "Out for Delivery"
+          );
+          outBtn.type = "button";
+          outBtn.setAttribute("data-action", "out_for_delivery");
+          outBtn.setAttribute("data-target-status", "out_for_delivery");
+          outBtn.addEventListener("click", function () {
+            handleOrderStatusUpdate(safeOrder, "out_for_delivery", outBtn);
+          });
+          actions.appendChild(outBtn);
+        } else {
+          // pickup or non-delivery fallback
+          const pickupBtn = makeElement(
+            "button",
+            "btn btn-primary btn-sm order-action-btn",
+            "Mark Picked Up / Delivered"
+          );
+          pickupBtn.type = "button";
+          pickupBtn.setAttribute("data-action", "mark_delivered");
+          pickupBtn.setAttribute("data-target-status", "delivered");
+          pickupBtn.addEventListener("click", function () {
+            handleOrderStatusUpdate(safeOrder, "delivered", pickupBtn);
+          });
+          actions.appendChild(pickupBtn);
+        }
+      } else if (status === "out_for_delivery") {
+        const deliveredBtn = makeElement(
+          "button",
+          "btn btn-primary btn-sm order-action-btn",
+          "Mark Delivered"
+        );
+        deliveredBtn.type = "button";
+        deliveredBtn.setAttribute("data-action", "mark_delivered");
+        deliveredBtn.setAttribute("data-target-status", "delivered");
+        deliveredBtn.addEventListener("click", function () {
+          handleOrderStatusUpdate(safeOrder, "delivered", deliveredBtn);
+        });
+        actions.appendChild(deliveredBtn);
+      } else if (status === "delivered" || status === "rejected") {
+        actions.classList.add("order-card-actions--final");
+        const finalBadge = makeElement(
+          "span",
+          "order-status order-status--" + statusMeta.modifier + " order-final-badge",
+          statusMeta.label
+        );
+        actions.appendChild(finalBadge);
+      }
+
+      if (actions.childNodes.length > 0) {
+        body.appendChild(actions);
+      }
 
       card.appendChild(body);
       return card;

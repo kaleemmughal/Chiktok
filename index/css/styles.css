@@ -92,6 +92,19 @@ input, textarea { font-family: inherit; }
 .btn-ghost { background: var(--surface-2); color: var(--text); }
 .btn-ghost:hover { background: var(--border); }
 
+.btn-danger {
+  background: var(--danger, #c62828);
+  color: #fff;
+  border-color: var(--danger, #c62828);
+  box-shadow: 0 4px 14px rgba(198, 40, 40, 0.25);
+}
+.btn-danger:hover {
+  background: #b71c1c;
+  border-color: #b71c1c;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(198, 40, 40, 0.35);
+}
+
 .btn-block { width: 100%; }
 
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -1369,6 +1382,107 @@ a.order-phone:hover {
   background: var(--surface-2);
   border: 1px dashed var(--border);
   border-radius: var(--radius);
+}
+
+/* ---------- Order Card Workflow Actions ---------- */
+.order-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 14px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.order-card-actions .btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.order-card-actions--final {
+  justify-content: flex-start;
+}
+
+.order-final-badge {
+  font-size: 0.78rem;
+  padding: 6px 14px;
+}
+
+/* ---------- Admin Toast Notifications ---------- */
+.admin-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+  width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.admin-toast {
+  pointer-events: auto;
+  background: #1e293b;
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  animation: toastFadeIn 0.25s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.admin-toast--error {
+  background: #b91c1c;
+  color: #fff;
+}
+
+.admin-toast--success {
+  background: #15803d;
+  color: #fff;
+}
+
+.admin-toast-message {
+  flex: 1;
+}
+
+.admin-toast-close {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.8;
+  padding: 0 4px;
+}
+
+.admin-toast-close:hover {
+  opacity: 1;
+}
+
+.admin-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@keyframes toastFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 520px) {
