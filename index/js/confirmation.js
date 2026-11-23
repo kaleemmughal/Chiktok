@@ -36,7 +36,7 @@ function renderConfirmation({ orderNumber, token }) {
     ? `track.html?token=${encodeURIComponent(token)}`
     : "";
   const trackAction = trackHref
-    ? `<a class="btn btn-primary" id="trackOrder" href="${trackHref}">Track Order</a>`
+    ? `<a class="btn btn-primary" id="trackOrder" href="${trackHref}">Track My Order</a>`
     : "";
 
   root.innerHTML = `

@@ -29,7 +29,12 @@
   <main class="page-shell">
     <div class="container">
       <h1 class="page-title">Track Order</h1>
-      <!-- Order tracking content will go here. -->
+      <div id="trackRoot">
+        <div class="track-loading" role="status" aria-live="polite">
+          <span class="track-spinner" aria-hidden="true"></span>
+          <p>Looking up your order…</p>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -37,11 +42,7 @@
     <div class="footer-bottom">© <span id="year"></span> Dera Karahi. All rights reserved.</div>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/common.js"></script>
-  <script>
-    document.getElementById("year").textContent = new Date().getFullYear();
-  </script>
-  <!-- Page-specific scripts will go here. -->
+  <script src="js/track.js"></script>
 </body>
 </html>
