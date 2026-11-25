@@ -11,12 +11,15 @@ let subtotal = 0;
 let deliveryFee = 0;
 let total = 0;
 let isSubmitting = false;
+let isStoreClosed = false;
 
 const form = document.getElementById("checkoutForm");
 
 async function init() {
   document.getElementById("year").textContent = new Date().getFullYear();
   updateCartBadge();
+
+  const storeStatusPromise = loadStoreStatus();
 
   if (getCartCount() === 0) {
     document.getElementById("checkoutRoot").innerHTML = `
@@ -26,6 +29,7 @@ async function init() {
         <p>Add some delicious karahi before checking out.</p>
         <a href="index.html" class="btn btn-primary">Browse Menu</a>
       </div>`;
+    await storeStatusPromise;
     return;
   }
 
@@ -39,6 +43,45 @@ async function init() {
     console.error(err);
     document.getElementById("checkoutRoot").innerHTML = `
       <div class="load-error">Could not load the menu. <a href="index.html">Go back to menu</a>.</div>`;
+  }
+
+  await storeStatusPromise;
+}
+
+/* ---------- Store open/closed status ---------- */
+async function loadStoreStatus() {
+  const client = window.supabaseClient;
+  if (!client) return;
+
+  try {
+    // Anonymous customers need SELECT permission on public.settings.
+    const { data, error } = await client
+      .from("settings")
+      .select("value")
+      .eq("key", "accepting_orders")
+      .maybeSingle();
+
+    if (error) throw error;
+    applyStoreStatus(data ? data.value : null);
+  } catch (err) {
+    console.warn("Could not read accepting_orders setting:", err);
+    // Fail open — the create-order API still enforces the setting server-side.
+  }
+}
+
+function applyStoreStatus(value) {
+  isStoreClosed = String(value) === "false";
+
+  const banner = document.getElementById("storeClosedBanner");
+  if (banner) banner.hidden = !isStoreClosed;
+
+  if (!isStoreClosed) return;
+
+  const btn = document.getElementById("placeOrder");
+  if (btn) {
+    btn.disabled = true;
+    btn.setAttribute("aria-disabled", "true");
+    btn.title = "We are currently closed for orders.";
   }
 }
 
@@ -110,6 +153,14 @@ function bindForm() {
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     if (isSubmitting) return;
+
+    if (isStoreClosed) {
+      showFormError(
+        "Sorry, we are currently closed and not accepting orders right now."
+      );
+      return;
+    }
+
     hideFormError();
     if (validate()) placeOrder();
   });
@@ -177,7 +228,7 @@ function clearFieldError(name) {
 
 /* ---------- Place order (POST /api/create-order) ---------- */
 async function placeOrder() {
-  if (isSubmitting) return;
+  if (isSubmitting || isStoreClosed) return;
   isSubmitting = true;
 
   const btn = document.getElementById("placeOrder");
@@ -251,7 +302,7 @@ async function placeOrder() {
   } finally {
     if (!redirecting) {
       isSubmitting = false;
-      btn.disabled = false;
+      btn.disabled = isStoreClosed;
       btn.removeAttribute("aria-busy");
       btn.innerHTML = originalLabel;
     }

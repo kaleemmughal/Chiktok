@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 let menu = { categories: [], menu_items: [] };
 let activeCategoryId = null;
+let storeIsClosed = false;
 
 const grid = document.getElementById("menuGrid");
 const categoryTabs = document.getElementById("categories");
@@ -15,6 +16,8 @@ async function init() {
   updateCartBadge();
   bindDrawerEvents();
   bindMenuEvents();
+
+  const storeStatusPromise = loadStoreStatus();
 
   try {
     menu = await loadMenu();
@@ -30,6 +33,53 @@ async function init() {
         ${detail ? `<p style="margin-top:8px;font-size:0.88em;">Details: <code>${escapeHTML(detail)}</code></p>` : ""}
         <p style="margin-top:8px;font-size:0.82em;">If this is a permission error, run the RLS / SELECT grant query in your Supabase SQL Editor.</p>
       </div>`;
+  }
+
+  await storeStatusPromise;
+}
+
+/* ---------- Store open/closed status ---------- */
+async function loadStoreStatus() {
+  const client = window.supabaseClient;
+  if (!client) return;
+
+  try {
+    // Anonymous customers need SELECT permission on public.settings.
+    const { data, error } = await client
+      .from("settings")
+      .select("value")
+      .eq("key", "accepting_orders")
+      .maybeSingle();
+
+    if (error) throw error;
+    applyStoreStatus(data ? data.value : null);
+  } catch (err) {
+    console.warn("Could not read accepting_orders setting:", err);
+    // Fail open — /api/create-order still enforces the setting server-side.
+  }
+}
+
+function applyStoreStatus(value) {
+  storeIsClosed = String(value) === "false";
+
+  const banner = document.getElementById("storeClosedBanner");
+  if (banner) banner.hidden = !storeIsClosed;
+
+  const checkoutBtn = document.getElementById("checkoutBtn");
+  if (!checkoutBtn) return;
+
+  if (storeIsClosed) {
+    checkoutBtn.removeAttribute("href");
+    checkoutBtn.setAttribute("aria-disabled", "true");
+    checkoutBtn.setAttribute("tabindex", "-1");
+    checkoutBtn.classList.add("is-disabled");
+    checkoutBtn.textContent = "Ordering Closed";
+  } else {
+    checkoutBtn.setAttribute("href", "checkout.html");
+    checkoutBtn.removeAttribute("aria-disabled");
+    checkoutBtn.removeAttribute("tabindex");
+    checkoutBtn.classList.remove("is-disabled");
+    checkoutBtn.textContent = "Checkout →";
   }
 }
 

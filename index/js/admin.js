@@ -113,6 +113,16 @@
     const escapeHTML = getEscapeHTML();
     let isOverviewLoaded = false;
 
+    // ---------- Menu Manager & Store Settings state ----------
+    let menuCategories = [];
+    let menuItems = [];
+    let isMenuManagerLoaded = false;
+    let isMenuManagerLoading = false;
+
+    let storeSettings = {};
+    let isStoreSettingsLoaded = false;
+    let isStoreSettingsLoading = false;
+
     // ---------- Web Audio API Synthesized Bells (No External MP3) ----------
     let audioCtx = null;
     let isAudioUnlocked = false;
@@ -1028,9 +1038,18 @@
       // Clear any pending login errors
       clearLoginError();
 
-      // Load the kitchen queue and the menu preview for a verified admin
+      // Load the kitchen queue and menu overview for a verified admin.
+      // Menu Manager and Store Settings load lazily when their tabs are opened.
       loadAdminOrders();
       loadAdminOverview();
+
+      // If a manager tab is already visible (e.g. after re-authentication), reload it
+      const activeTabButton = document.querySelector(".admin-tab.is-active");
+      const activeTabName = activeTabButton
+        ? activeTabButton.getAttribute("data-admin-tab")
+        : "dashboard";
+      if (activeTabName === "menu") loadMenuManager();
+      if (activeTabName === "settings") loadStoreSettings();
 
       // Start the Realtime subscription only after the existing admin role check confirms the user is an admin
       subscribeToLiveOrders();
@@ -1052,6 +1071,10 @@
 
       // Cleanly unsubscribe from the Realtime channel
       unsubscribeFromLiveOrders();
+
+      // Force the manager tabs to refetch on the next sign-in
+      isMenuManagerLoaded = false;
+      isStoreSettingsLoaded = false;
 
       // Hide admin content immediately when there is no valid session
       if (adminDashboard) {
@@ -1386,6 +1409,679 @@
       refreshBtn.addEventListener("click", function () {
         isOverviewLoaded = false;
         loadAdminOverview();
+      });
+    }
+
+    // ============================================================
+    // Admin tabs (Dashboard / Menu Manager / Store Settings)
+    // ============================================================
+    const adminTabButtons = Array.prototype.slice.call(
+      document.querySelectorAll("[data-admin-tab]")
+    );
+    const adminTabPanels = Array.prototype.slice.call(
+      document.querySelectorAll("[data-admin-panel]")
+    );
+
+    function activateAdminTab(tabName) {
+      adminTabButtons.forEach(function (button) {
+        const isActive = button.getAttribute("data-admin-tab") === tabName;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+        button.tabIndex = isActive ? 0 : -1;
+      });
+
+      adminTabPanels.forEach(function (panel) {
+        const isActive = panel.getAttribute("data-admin-panel") === tabName;
+        panel.hidden = !isActive;
+      });
+
+      // Lazy-load each tab the first time it is opened
+      if (tabName === "menu") loadMenuManager();
+      if (tabName === "settings") loadStoreSettings();
+    }
+
+    adminTabButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        activateAdminTab(button.getAttribute("data-admin-tab") || "dashboard");
+      });
+
+      button.addEventListener("keydown", function (event) {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const currentIndex = adminTabButtons.indexOf(button);
+        if (currentIndex === -1) return;
+        const direction = event.key === "ArrowRight" ? 1 : -1;
+        const nextIndex =
+          (currentIndex + direction + adminTabButtons.length) % adminTabButtons.length;
+        const nextButton = adminTabButtons[nextIndex];
+        nextButton.focus();
+        activateAdminTab(nextButton.getAttribute("data-admin-tab") || "dashboard");
+      });
+    });
+
+    // ============================================================
+    // Menu Manager
+    // ============================================================
+    const menuManagerContainer = document.getElementById("admin-menu-manager");
+    const addDishForm = document.getElementById("add-dish-form");
+    const dishCategorySelect = document.getElementById("dish-category");
+    const dishNameInput = document.getElementById("dish-name");
+    const dishPriceInput = document.getElementById("dish-price");
+    const dishDescriptionInput = document.getElementById("dish-description");
+    const dishImageUrlInput = document.getElementById("dish-image-url");
+    const addDishButton = document.getElementById("add-dish-btn");
+    const addDishError = document.getElementById("add-dish-error");
+    const refreshMenuManagerBtn = document.getElementById("refresh-menu-manager-btn");
+
+    function setAddDishError(message) {
+      if (!addDishError) return;
+      if (message) {
+        addDishError.textContent = message;
+        addDishError.hidden = false;
+        addDishError.removeAttribute("hidden");
+      } else {
+        addDishError.textContent = "";
+        addDishError.hidden = true;
+        addDishError.setAttribute("hidden", "");
+      }
+    }
+
+    function getMenuCategoryName(categoryId) {
+      const match = menuCategories.find(function (category) {
+        return String(category.id) === String(categoryId);
+      });
+      return (match && match.name) || "Uncategorised";
+    }
+
+    function updateMenuStatCount() {
+      const statMenuCount = document.getElementById("stat-menu-count");
+      if (statMenuCount && isMenuManagerLoaded) {
+        statMenuCount.textContent = menuItems.length;
+      }
+    }
+
+    function populateDishCategorySelect() {
+      if (!dishCategorySelect) return;
+
+      const previousValue = dishCategorySelect.value;
+      dishCategorySelect.textContent = "";
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = menuCategories.length
+        ? "Select a category"
+        : "No categories available";
+      dishCategorySelect.appendChild(placeholder);
+
+      menuCategories.forEach(function (category) {
+        const option = document.createElement("option");
+        option.value = String(category.id);
+        option.textContent = category.name || "Untitled category";
+        dishCategorySelect.appendChild(option);
+      });
+
+      const stillExists = menuCategories.some(function (category) {
+        return String(category.id) === previousValue;
+      });
+      if (previousValue && stillExists) {
+        dishCategorySelect.value = previousValue;
+      }
+    }
+
+    function buildMenuItemEditor(item) {
+      const card = document.createElement("article");
+      card.className = "menu-item-editor";
+      card.setAttribute("data-item-id", String(item.id));
+
+      const isAvailable = item.is_available !== false;
+      const categoryName = getMenuCategoryName(item.category_id);
+      const nameValue = escapeHTML(item.name || "");
+      const priceValue = escapeHTML(item.price === null || item.price === undefined ? "" : item.price);
+      const descriptionValue = escapeHTML(item.description || "");
+      const imageUrlValue = escapeHTML(item.image_url || "");
+
+      card.innerHTML = `
+        <div class="menu-item-editor-head">
+          <div class="menu-item-editor-title">
+            <span class="menu-item-id">#${escapeHTML(item.id)}</span>
+            <span class="menu-item-category">${escapeHTML(categoryName)}</span>
+          </div>
+          <div class="availability-control">
+            <span class="availability-label${isAvailable ? "" : " is-sold-out"}">${
+              isAvailable ? "Available" : "Sold Out"
+            }</span>
+            <label class="switch" title="Toggle availability">
+              <input
+                type="checkbox"
+                class="availability-toggle"
+                role="switch"
+                aria-label="Availability for ${nameValue}"
+                ${isAvailable ? "checked" : ""}
+              />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+        <div class="menu-item-editor-body">
+          <div class="field">
+            <label>Dish Name</label>
+            <input type="text" data-field="name" value="${nameValue}" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>Price (Rs)</label>
+            <input type="number" min="0" step="1" inputmode="numeric" data-field="price" value="${priceValue}" />
+          </div>
+          <div class="field field--full">
+            <label>Description</label>
+            <textarea rows="2" data-field="description">${descriptionValue}</textarea>
+          </div>
+          <div class="field field--full">
+            <label>Image URL</label>
+            <input type="url" data-field="image_url" value="${imageUrlValue}" autocomplete="off" />
+          </div>
+        </div>
+        <div class="menu-item-editor-actions">
+          <button type="button" class="btn btn-primary btn-sm" data-save-item>Save Changes</button>
+        </div>
+      `;
+
+      // Instant availability toggle — writes to Supabase immediately
+      const availabilityToggle = card.querySelector(".availability-toggle");
+      const availabilityLabel = card.querySelector(".availability-label");
+
+      if (availabilityToggle) {
+        availabilityToggle.addEventListener("change", async function () {
+          const nextValue = availabilityToggle.checked;
+          const db = getSupabaseClient();
+
+          if (!db) {
+            availabilityToggle.checked = !nextValue;
+            showToast("Database client is not available.", "error");
+            return;
+          }
+
+          availabilityToggle.disabled = true;
+
+          try {
+            const { error } = await db
+              .from("menu_items")
+              .update({ is_available: nextValue })
+              .eq("id", item.id);
+
+            if (error) throw error;
+
+            item.is_available = nextValue;
+            if (availabilityLabel) {
+              availabilityLabel.textContent = nextValue ? "Available" : "Sold Out";
+              availabilityLabel.classList.toggle("is-sold-out", !nextValue);
+            }
+            showToast(
+              nextValue ? "Dish marked as available." : "Dish marked as sold out.",
+              "success"
+            );
+          } catch (err) {
+            console.error("Could not update availability:", err);
+            availabilityToggle.checked = !nextValue;
+            showToast(err.message || "Could not update availability.", "error");
+          } finally {
+            availabilityToggle.disabled = false;
+          }
+        });
+      }
+
+      // Save the editable text/number fields
+      const saveItemBtn = card.querySelector("[data-save-item]");
+      if (saveItemBtn) {
+        saveItemBtn.addEventListener("click", async function () {
+          const nameField = card.querySelector('[data-field="name"]');
+          const priceField = card.querySelector('[data-field="price"]');
+          const descriptionField = card.querySelector('[data-field="description"]');
+          const imageField = card.querySelector('[data-field="image_url"]');
+
+          const name = nameField ? nameField.value.trim() : "";
+          const priceText = priceField ? priceField.value.trim() : "";
+          const description = descriptionField ? descriptionField.value.trim() : "";
+          const imageUrl = imageField ? imageField.value.trim() : "";
+
+          if (!name) {
+            showToast("Dish name cannot be empty.", "error");
+            if (nameField) nameField.focus();
+            return;
+          }
+
+          const price = Number(priceText);
+          if (priceText === "" || !Number.isInteger(price) || price < 0) {
+            showToast("Price must be a whole number of 0 or more.", "error");
+            if (priceField) priceField.focus();
+            return;
+          }
+
+          const db = getSupabaseClient();
+          if (!db) {
+            showToast("Database client is not available.", "error");
+            return;
+          }
+
+          saveItemBtn.disabled = true;
+          saveItemBtn.textContent = "Saving…";
+
+          try {
+            const { error } = await db
+              .from("menu_items")
+              .update({
+                name: name,
+                price: price,
+                description: description || null,
+                image_url: imageUrl || null,
+              })
+              .eq("id", item.id);
+
+            if (error) throw error;
+
+            item.name = name;
+            item.price = price;
+            item.description = description || null;
+            item.image_url = imageUrl || null;
+
+            showToast("Dish updated.", "success");
+          } catch (err) {
+            console.error("Could not update dish:", err);
+            showToast(err.message || "Could not save dish changes.", "error");
+          } finally {
+            saveItemBtn.disabled = false;
+            saveItemBtn.textContent = "Save Changes";
+          }
+        });
+      }
+
+      return card;
+    }
+
+    function renderMenuManager() {
+      if (!menuManagerContainer) return;
+
+      menuManagerContainer.textContent = "";
+
+      if (menuItems.length === 0) {
+        menuManagerContainer.appendChild(
+          makeElement(
+            "p",
+            "text-muted",
+            "No dishes yet. Use the form above to add your first dish."
+          )
+        );
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      menuItems.forEach(function (item) {
+        fragment.appendChild(buildMenuItemEditor(item));
+      });
+      menuManagerContainer.appendChild(fragment);
+    }
+
+    async function loadMenuManager(force) {
+      if (!menuManagerContainer) return;
+      if (isMenuManagerLoading) return;
+      if (isMenuManagerLoaded && !force) return;
+
+      const db = getSupabaseClient();
+      if (!db) {
+        menuManagerContainer.textContent = "";
+        menuManagerContainer.appendChild(
+          makeElement("p", "text-muted", "Database client is not available.")
+        );
+        return;
+      }
+
+      isMenuManagerLoading = true;
+      menuManagerContainer.setAttribute("aria-busy", "true");
+      menuManagerContainer.textContent = "";
+      menuManagerContainer.appendChild(makeElement("p", "text-muted", "Loading menu items…"));
+
+      if (refreshMenuManagerBtn) {
+        refreshMenuManagerBtn.disabled = true;
+        refreshMenuManagerBtn.textContent = "Refreshing…";
+      }
+
+      try {
+        const [categoriesResult, itemsResult] = await Promise.all([
+          db
+            .from("categories")
+            .select("id, name, sort_order")
+            .order("sort_order", { ascending: true }),
+          db
+            .from("menu_items")
+            .select("id, category_id, name, description, price, image_url, is_available")
+            .order("id", { ascending: true }),
+        ]);
+
+        if (categoriesResult.error) throw categoriesResult.error;
+        if (itemsResult.error) throw itemsResult.error;
+
+        menuCategories = Array.isArray(categoriesResult.data) ? categoriesResult.data : [];
+        menuItems = Array.isArray(itemsResult.data) ? itemsResult.data : [];
+        isMenuManagerLoaded = true;
+
+        populateDishCategorySelect();
+        renderMenuManager();
+        updateMenuStatCount();
+      } catch (err) {
+        console.error("Could not load menu manager data:", err);
+        isMenuManagerLoaded = false;
+        menuManagerContainer.textContent = "";
+        menuManagerContainer.appendChild(
+          makeElement("p", "text-muted", "Could not load menu items. Use Refresh to try again.")
+        );
+        showToast(err.message || "Could not load menu items.", "error");
+      } finally {
+        isMenuManagerLoading = false;
+        menuManagerContainer.setAttribute("aria-busy", "false");
+        if (refreshMenuManagerBtn) {
+          refreshMenuManagerBtn.disabled = false;
+          refreshMenuManagerBtn.textContent = "↻ Refresh";
+        }
+      }
+    }
+
+    // Add New Dish — `id` is intentionally omitted so Postgres assigns it
+    if (addDishForm) {
+      addDishForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        setAddDishError("");
+
+        const categoryId = dishCategorySelect ? dishCategorySelect.value : "";
+        const name = dishNameInput ? dishNameInput.value.trim() : "";
+        const priceText = dishPriceInput ? dishPriceInput.value.trim() : "";
+        const description = dishDescriptionInput ? dishDescriptionInput.value.trim() : "";
+        const imageUrl = dishImageUrlInput ? dishImageUrlInput.value.trim() : "";
+
+        if (!categoryId) {
+          setAddDishError("Please choose a category.");
+          if (dishCategorySelect) dishCategorySelect.focus();
+          return;
+        }
+
+        if (!name) {
+          setAddDishError("Please enter the dish name.");
+          if (dishNameInput) dishNameInput.focus();
+          return;
+        }
+
+        const price = Number(priceText);
+        if (priceText === "" || !Number.isInteger(price) || price < 0) {
+          setAddDishError("Price must be a whole number of 0 or more.");
+          if (dishPriceInput) dishPriceInput.focus();
+          return;
+        }
+
+        const db = getSupabaseClient();
+        if (!db) {
+          setAddDishError("Database client is not available.");
+          return;
+        }
+
+        const payload = {
+          category_id: Number(categoryId),
+          name: name,
+          price: price,
+          description: description || null,
+          image_url: imageUrl || null,
+        };
+
+        if (addDishButton) {
+          addDishButton.disabled = true;
+          addDishButton.textContent = "Adding…";
+        }
+
+        try {
+          const { error } = await db.from("menu_items").insert(payload);
+          if (error) throw error;
+
+          addDishForm.reset();
+          setAddDishError("");
+          showToast("Dish added to the menu.", "success");
+          await loadMenuManager(true);
+        } catch (err) {
+          console.error("Could not add dish:", err);
+          setAddDishError(err.message || "Could not add the dish. Please try again.");
+        } finally {
+          if (addDishButton) {
+            addDishButton.disabled = false;
+            addDishButton.textContent = "Add Dish";
+          }
+        }
+      });
+    }
+
+    if (refreshMenuManagerBtn) {
+      refreshMenuManagerBtn.addEventListener("click", function () {
+        loadMenuManager(true);
+      });
+    }
+
+    // ============================================================
+    // Store Settings
+    // ============================================================
+    const acceptingOrdersToggle = document.getElementById("setting-accepting-orders");
+    const acceptingOrdersLabel = document.getElementById("accepting-orders-label");
+    const storeMasterCard = document.querySelector("#admin-panel-settings .store-master-card");
+    const storeSettingsForm = document.getElementById("store-settings-form");
+    const openTimeInput = document.getElementById("setting-open-time");
+    const closeTimeInput = document.getElementById("setting-close-time");
+    const baseDeliveryFeeInput = document.getElementById("setting-base-delivery-fee");
+    const saveStoreSettingsBtn = document.getElementById("save-store-settings-btn");
+    const storeSettingsError = document.getElementById("store-settings-error");
+
+    function setStoreSettingsError(message) {
+      if (!storeSettingsError) return;
+      if (message) {
+        storeSettingsError.textContent = message;
+        storeSettingsError.hidden = false;
+        storeSettingsError.removeAttribute("hidden");
+      } else {
+        storeSettingsError.textContent = "";
+        storeSettingsError.hidden = true;
+        storeSettingsError.setAttribute("hidden", "");
+      }
+    }
+
+    function normalizeSettingTime(value) {
+      const raw = String(value === undefined || value === null ? "" : value).trim();
+      if (!raw) return "";
+
+      if (/^\d{2}:\d{2}$/.test(raw)) return raw;
+
+      const match = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+      if (!match) return "";
+
+      let hours = Number(match[1]);
+      const minutes = match[2];
+      const meridiem = match[3] ? match[3].toLowerCase() : "";
+
+      if (meridiem === "pm" && hours < 12) hours += 12;
+      if (meridiem === "am" && hours === 12) hours = 0;
+      if (hours < 0 || hours > 23) return "";
+
+      return String(hours).padStart(2, "0") + ":" + minutes;
+    }
+
+    function updateAcceptingOrdersUI(isAccepting) {
+      if (acceptingOrdersLabel) {
+        acceptingOrdersLabel.textContent = isAccepting
+          ? "Accepting orders"
+          : "Not accepting orders";
+        acceptingOrdersLabel.classList.toggle("is-off", !isAccepting);
+      }
+      if (storeMasterCard) {
+        storeMasterCard.classList.toggle("is-closed", !isAccepting);
+      }
+    }
+
+    function applyStoreSettingsToForm() {
+      const acceptingValue = String(
+        storeSettings.accepting_orders === undefined || storeSettings.accepting_orders === null
+          ? ""
+          : storeSettings.accepting_orders
+      )
+        .trim()
+        .toLowerCase();
+      const isAccepting = acceptingValue === "true" || acceptingValue === "1";
+
+      if (acceptingOrdersToggle) {
+        acceptingOrdersToggle.checked = isAccepting;
+      }
+      updateAcceptingOrdersUI(isAccepting);
+
+      if (openTimeInput) {
+        openTimeInput.value = normalizeSettingTime(storeSettings.open_time);
+      }
+      if (closeTimeInput) {
+        closeTimeInput.value = normalizeSettingTime(storeSettings.close_time);
+      }
+      if (baseDeliveryFeeInput) {
+        const rawFee = storeSettings.base_delivery_fee;
+        if (rawFee === undefined || rawFee === null || String(rawFee).trim() === "") {
+          baseDeliveryFeeInput.value = "";
+        } else {
+          const fee = Number(rawFee);
+          baseDeliveryFeeInput.value = Number.isFinite(fee)
+            ? String(Math.max(0, Math.round(fee)))
+            : String(rawFee);
+        }
+      }
+    }
+
+    async function loadStoreSettings(force) {
+      if (isStoreSettingsLoading) return;
+      if (isStoreSettingsLoaded && !force) return;
+
+      const db = getSupabaseClient();
+      if (!db) return;
+
+      isStoreSettingsLoading = true;
+      if (acceptingOrdersToggle) acceptingOrdersToggle.disabled = true;
+
+      try {
+        const { data, error } = await db.from("settings").select("key, value");
+        if (error) throw error;
+
+        storeSettings = {};
+        (Array.isArray(data) ? data : []).forEach(function (row) {
+          if (row && row.key !== undefined && row.key !== null) {
+            storeSettings[String(row.key)] = row.value;
+          }
+        });
+
+        isStoreSettingsLoaded = true;
+        applyStoreSettingsToForm();
+      } catch (err) {
+        console.error("Could not load store settings:", err);
+        isStoreSettingsLoaded = false;
+        showToast(err.message || "Could not load store settings.", "error");
+        if (acceptingOrdersLabel) {
+          acceptingOrdersLabel.textContent = "Unavailable";
+          acceptingOrdersLabel.classList.add("is-off");
+        }
+      } finally {
+        isStoreSettingsLoading = false;
+        if (acceptingOrdersToggle) acceptingOrdersToggle.disabled = false;
+      }
+    }
+
+    async function upsertStoreSettings(entries) {
+      const db = getSupabaseClient();
+      if (!db) throw new Error("Database client is not available.");
+
+      const payload = entries.map(function (entry) {
+        const value = entry[1];
+        return {
+          key: entry[0],
+          value: value === undefined || value === null ? "" : String(value),
+        };
+      });
+
+      const { error } = await db.from("settings").upsert(payload, { onConflict: "key" });
+      if (error) throw error;
+    }
+
+    // Master toggle — saved immediately
+    if (acceptingOrdersToggle) {
+      acceptingOrdersToggle.addEventListener("change", async function () {
+        const isAccepting = acceptingOrdersToggle.checked;
+        acceptingOrdersToggle.disabled = true;
+
+        try {
+          await upsertStoreSettings([
+            ["accepting_orders", isAccepting ? "true" : "false"],
+          ]);
+          storeSettings.accepting_orders = isAccepting ? "true" : "false";
+          updateAcceptingOrdersUI(isAccepting);
+          showToast(
+            isAccepting
+              ? "Store is now accepting orders."
+              : "Store is now closed for new orders.",
+            "success"
+          );
+        } catch (err) {
+          console.error("Could not update accepting_orders:", err);
+          acceptingOrdersToggle.checked = !isAccepting;
+          updateAcceptingOrdersUI(!isAccepting);
+          showToast(err.message || "Could not update order acceptance.", "error");
+        } finally {
+          acceptingOrdersToggle.disabled = false;
+        }
+      });
+    }
+
+    if (storeSettingsForm) {
+      storeSettingsForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        setStoreSettingsError("");
+
+        const openTime = openTimeInput ? openTimeInput.value : "";
+        const closeTime = closeTimeInput ? closeTimeInput.value : "";
+        const feeText = baseDeliveryFeeInput ? baseDeliveryFeeInput.value.trim() : "";
+
+        let deliveryFee = 0;
+        if (feeText !== "") {
+          const parsedFee = Number(feeText);
+          if (!Number.isInteger(parsedFee) || parsedFee < 0) {
+            setStoreSettingsError("Base delivery fee must be a whole number of 0 or more.");
+            if (baseDeliveryFeeInput) baseDeliveryFeeInput.focus();
+            return;
+          }
+          deliveryFee = parsedFee;
+        }
+
+        if (saveStoreSettingsBtn) {
+          saveStoreSettingsBtn.disabled = true;
+          saveStoreSettingsBtn.textContent = "Saving…";
+        }
+
+        try {
+          await upsertStoreSettings([
+            ["open_time", openTime],
+            ["close_time", closeTime],
+            ["base_delivery_fee", deliveryFee],
+          ]);
+
+          storeSettings.open_time = openTime;
+          storeSettings.close_time = closeTime;
+          storeSettings.base_delivery_fee = String(deliveryFee);
+
+          showToast("Store settings saved.", "success");
+        } catch (err) {
+          console.error("Could not save store settings:", err);
+          setStoreSettingsError(
+            err.message || "Could not save store settings. Please try again."
+          );
+        } finally {
+          if (saveStoreSettingsBtn) {
+            saveStoreSettingsBtn.disabled = false;
+            saveStoreSettingsBtn.textContent = "Save Settings";
+          }
+        }
       });
     }
   }

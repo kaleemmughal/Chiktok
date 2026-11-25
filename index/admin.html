@@ -102,68 +102,283 @@
           </div>
         </header>
 
-        <div class="admin-grid">
-          <div class="admin-stat-card">
-            <div class="admin-stat-icon">🍲</div>
-            <div class="admin-stat-info">
-              <h3>Restaurant</h3>
-              <div class="stat-value">Dera Karahi</div>
+        <nav class="admin-tabs" role="tablist" aria-label="Admin sections">
+          <button
+            type="button"
+            class="admin-tab is-active"
+            id="tab-dashboard"
+            data-admin-tab="dashboard"
+            role="tab"
+            aria-selected="true"
+            aria-controls="admin-panel-dashboard"
+          >Dashboard</button>
+          <button
+            type="button"
+            class="admin-tab"
+            id="tab-menu"
+            data-admin-tab="menu"
+            role="tab"
+            aria-selected="false"
+            aria-controls="admin-panel-menu"
+            tabindex="-1"
+          >Menu Manager</button>
+          <button
+            type="button"
+            class="admin-tab"
+            id="tab-settings"
+            data-admin-tab="settings"
+            role="tab"
+            aria-selected="false"
+            aria-controls="admin-panel-settings"
+            tabindex="-1"
+          >Store Settings</button>
+        </nav>
+
+        <!-- Dashboard tab -->
+        <div
+          class="admin-tab-panel"
+          id="admin-panel-dashboard"
+          data-admin-panel="dashboard"
+          role="tabpanel"
+          aria-labelledby="tab-dashboard"
+        >
+          <div class="admin-grid">
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon">🍲</div>
+              <div class="admin-stat-info">
+                <h3>Restaurant</h3>
+                <div class="stat-value">Dera Karahi</div>
+              </div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon">📋</div>
+              <div class="admin-stat-info">
+                <h3>Menu Items</h3>
+                <div class="stat-value" id="stat-menu-count">—</div>
+              </div>
+            </div>
+            <div class="admin-stat-card">
+              <div class="admin-stat-icon">🟢</div>
+              <div class="admin-stat-info">
+                <h3>System Status</h3>
+                <div class="stat-value">Online</div>
+              </div>
             </div>
           </div>
-          <div class="admin-stat-card">
-            <div class="admin-stat-icon">📋</div>
-            <div class="admin-stat-info">
-              <h3>Menu Items</h3>
-              <div class="stat-value" id="stat-menu-count">—</div>
+
+          <div class="admin-card admin-orders-card">
+            <div class="admin-card-header admin-orders-header">
+              <div class="admin-orders-heading">
+                <h2>Kitchen Orders</h2>
+                <p class="admin-orders-subtitle">Newest orders first · updates when you refresh</p>
+              </div>
+              <button type="button" id="refresh-orders-btn" class="btn btn-ghost btn-sm">Refresh</button>
+            </div>
+
+            <div class="order-filters" id="order-filters" role="group" aria-label="Filter orders">
+              <button type="button" class="order-filter-pill is-active" data-order-filter="active" aria-pressed="true">Active</button>
+              <button type="button" class="order-filter-pill" data-order-filter="completed" aria-pressed="false">Completed</button>
+              <button type="button" class="order-filter-pill" data-order-filter="all" aria-pressed="false">All</button>
+              <span id="orders-count" class="orders-count" aria-live="polite"></span>
+            </div>
+
+            <div id="admin-orders-container" class="order-cards" aria-live="polite" aria-busy="false">
+              <p class="text-muted">Loading orders…</p>
             </div>
           </div>
-          <div class="admin-stat-card">
-            <div class="admin-stat-icon">🟢</div>
-            <div class="admin-stat-info">
-              <h3>System Status</h3>
-              <div class="stat-value">Online</div>
+
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <h2>Quick Actions</h2>
+            </div>
+            <div class="confirm-actions" style="justify-content: flex-start;">
+              <a href="index.html" class="btn btn-ghost">Browse Menu</a>
+              <a href="track.html" class="btn btn-ghost">Track Orders</a>
+            </div>
+          </div>
+
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <h2>Menu Overview</h2>
+              <button type="button" id="refresh-menu-btn" class="btn btn-ghost btn-sm">↻ Refresh</button>
+            </div>
+            <div id="admin-menu-container">
+              <p class="text-muted">Loading menu items...</p>
             </div>
           </div>
         </div>
 
-        <div class="admin-card admin-orders-card">
-          <div class="admin-card-header admin-orders-header">
-            <div class="admin-orders-heading">
-              <h2>Kitchen Orders</h2>
-              <p class="admin-orders-subtitle">Newest orders first · updates when you refresh</p>
+        <!-- Menu Manager tab -->
+        <div
+          class="admin-tab-panel"
+          id="admin-panel-menu"
+          data-admin-panel="menu"
+          role="tabpanel"
+          aria-labelledby="tab-menu"
+          hidden
+        >
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <div class="admin-card-heading">
+                <h2>Add New Dish</h2>
+                <p class="admin-section-subtitle">New dishes appear on the menu right away.</p>
+              </div>
             </div>
-            <button type="button" id="refresh-orders-btn" class="btn btn-ghost btn-sm">Refresh</button>
+
+            <form id="add-dish-form" class="add-dish-form" novalidate>
+              <div class="admin-form-grid">
+                <div class="field">
+                  <label for="dish-category">Category</label>
+                  <select id="dish-category" name="category_id" required>
+                    <option value="">Loading categories…</option>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label for="dish-name">Dish Name</label>
+                  <input
+                    id="dish-name"
+                    name="name"
+                    type="text"
+                    placeholder="e.g. Chicken Karahi"
+                    autocomplete="off"
+                    required
+                  />
+                </div>
+
+                <div class="field">
+                  <label for="dish-price">Price (Rs)</label>
+                  <input
+                    id="dish-price"
+                    name="price"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="1500"
+                    required
+                  />
+                </div>
+
+                <div class="field admin-form-span-2">
+                  <label for="dish-description">Description <span class="optional">(optional)</span></label>
+                  <textarea
+                    id="dish-description"
+                    name="description"
+                    rows="2"
+                    placeholder="Served with naan and salad"
+                  ></textarea>
+                </div>
+
+                <div class="field admin-form-span-2">
+                  <label for="dish-image-url">Image URL <span class="optional">(optional)</span></label>
+                  <input
+                    id="dish-image-url"
+                    name="image_url"
+                    type="url"
+                    placeholder="https://…"
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <div id="add-dish-error" class="form-error" role="alert" aria-live="assertive" hidden></div>
+
+              <div class="admin-form-actions">
+                <button type="submit" class="btn btn-primary" id="add-dish-btn">Add Dish</button>
+              </div>
+            </form>
           </div>
 
-          <div class="order-filters" id="order-filters" role="group" aria-label="Filter orders">
-            <button type="button" class="order-filter-pill is-active" data-order-filter="active" aria-pressed="true">Active</button>
-            <button type="button" class="order-filter-pill" data-order-filter="completed" aria-pressed="false">Completed</button>
-            <button type="button" class="order-filter-pill" data-order-filter="all" aria-pressed="false">All</button>
-            <span id="orders-count" class="orders-count" aria-live="polite"></span>
-          </div>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <div class="admin-card-heading">
+                <h2>Menu Manager</h2>
+                <p class="admin-section-subtitle">Edit dishes and toggle availability instantly.</p>
+              </div>
+              <button type="button" id="refresh-menu-manager-btn" class="btn btn-ghost btn-sm">↻ Refresh</button>
+            </div>
 
-          <div id="admin-orders-container" class="order-cards" aria-live="polite" aria-busy="false">
-            <p class="text-muted">Loading orders…</p>
+            <div id="admin-menu-manager" class="menu-manager-list" aria-live="polite" aria-busy="false">
+              <p class="text-muted">Loading menu items…</p>
+            </div>
           </div>
         </div>
 
-        <div class="admin-card">
-          <div class="admin-card-header">
-            <h2>Quick Actions</h2>
+        <!-- Store Settings tab -->
+        <div
+          class="admin-tab-panel"
+          id="admin-panel-settings"
+          data-admin-panel="settings"
+          role="tabpanel"
+          aria-labelledby="tab-settings"
+          hidden
+        >
+          <div class="admin-card store-master-card">
+            <div class="store-master-info">
+              <span class="store-master-icon" aria-hidden="true">🛎️</span>
+              <div>
+                <h2>Accepting Orders</h2>
+                <p id="accepting-orders-help">
+                  Switch this off to stop new orders. Customers will see the store as closed.
+                </p>
+              </div>
+            </div>
+            <div class="store-master-control">
+              <span id="accepting-orders-label" class="store-status-label">Loading…</span>
+              <label class="switch switch--lg" for="setting-accepting-orders">
+                <input
+                  id="setting-accepting-orders"
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Accepting orders"
+                  aria-describedby="accepting-orders-help"
+                />
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
           </div>
-          <div class="confirm-actions" style="justify-content: flex-start;">
-            <a href="index.html" class="btn btn-ghost">Browse Menu</a>
-            <a href="track.html" class="btn btn-ghost">Track Orders</a>
-          </div>
-        </div>
 
-        <div class="admin-card">
-          <div class="admin-card-header">
-            <h2>Menu Overview</h2>
-            <button type="button" id="refresh-menu-btn" class="btn btn-ghost btn-sm">↻ Refresh</button>
-          </div>
-          <div id="admin-menu-container">
-            <p class="text-muted">Loading menu items...</p>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <div class="admin-card-heading">
+                <h2>Store Settings</h2>
+                <p class="admin-section-subtitle">Opening hours and delivery pricing.</p>
+              </div>
+            </div>
+
+            <form id="store-settings-form" class="store-settings-form" novalidate>
+              <div class="admin-form-grid">
+                <div class="field">
+                  <label for="setting-open-time">Opening Time</label>
+                  <input id="setting-open-time" name="open_time" type="time" />
+                </div>
+
+                <div class="field">
+                  <label for="setting-close-time">Closing Time</label>
+                  <input id="setting-close-time" name="close_time" type="time" />
+                </div>
+
+                <div class="field admin-form-span-2">
+                  <label for="setting-base-delivery-fee">Base Delivery Fee (Rs)</label>
+                  <input
+                    id="setting-base-delivery-fee"
+                    name="base_delivery_fee"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="150"
+                  />
+                </div>
+              </div>
+
+              <div id="store-settings-error" class="form-error" role="alert" aria-live="assertive" hidden></div>
+
+              <div class="admin-form-actions">
+                <button type="submit" class="btn btn-primary" id="save-store-settings-btn">Save Settings</button>
+              </div>
+            </form>
           </div>
         </div>
       </section>

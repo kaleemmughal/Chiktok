@@ -97,7 +97,38 @@ export async function onRequestPost(context) {
     });
   }
 
-  // 6. Insert parent row into `orders` and ask PostgREST for the created row back
+  // 6. Refuse the order while the store is closed (accepting_orders !== 'true')
+  const settingsRes = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/settings?key=eq.accepting_orders&select=value`,
+    {
+      headers: {
+        apikey: env.SUPABASE_SECRET_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`
+      }
+    }
+  );
+
+  if (!settingsRes.ok) {
+    const errText = await settingsRes.text();
+    console.error("Store settings lookup failed:", errText);
+    return Response.json({ error: "Could not verify store status." }, { status: 500 });
+  }
+
+  const settingsData = await settingsRes.json();
+  const settingsRow = Array.isArray(settingsData) ? settingsData[0] : settingsData;
+  const acceptingOrders =
+    settingsRow && settingsRow.value !== undefined && settingsRow.value !== null
+      ? String(settingsRow.value)
+      : "";
+
+  if (acceptingOrders !== "true") {
+    return Response.json(
+      { error: "Sorry, we are currently closed and not accepting orders right now." },
+      { status: 400 }
+    );
+  }
+
+  // 7. Insert parent row into `orders` and ask PostgREST for the created row back
   const delivery_fee = 0; // Day 25 upgrades this to Haversine distance fee
   const discount = 0;     // Day 26 upgrades this to server-verified promo discount
   const tax = 0;
@@ -136,7 +167,7 @@ export async function onRequestPost(context) {
 
   const [createdOrder] = await orderRes.json();
 
-  // 7. Insert all `order_items` rows in one bulk POST using DB-verified names & prices
+  // 8. Insert all `order_items` rows in one bulk POST using DB-verified names & prices
   const orderItemsPayload = verifiedItems.map(item => ({
     order_id: createdOrder.id,
     menu_item_id: item.menu_item_id,
@@ -151,7 +182,7 @@ export async function onRequestPost(context) {
     body: JSON.stringify(orderItemsPayload)
   });
 
-  // 8. Compensating rollback: if order_items fails, delete the orphan order row!
+  // 9. Compensating rollback: if order_items fails, delete the orphan order row!
   if (!itemsRes.ok) {
     const errText = await itemsRes.text();
     console.error("Order items insert failed, rolling back order:", errText);
@@ -165,7 +196,7 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Could not save order items." }, { status: 500 });
   }
 
-  // 9. Return ONLY safe confirmation identifiers to the browser
+  // 10. Return ONLY safe confirmation identifiers to the browser
   return Response.json(
     {
       ok: true,
