@@ -39,6 +39,7 @@ async function init() {
     renderSummary();
     bindOrderType();
     bindForm();
+    prefillFromProfile();
   } catch (err) {
     console.error(err);
     document.getElementById("checkoutRoot").innerHTML = `
@@ -46,6 +47,32 @@ async function init() {
   }
 
   await storeStatusPromise;
+}
+
+/* ---------- Optional signed-in prefill (guests unaffected) ---------- */
+async function prefillFromProfile() {
+  const auth = window.DeraAuth;
+  if (!auth || typeof auth.getSignedInProfile !== "function") return;
+
+  try {
+    const ctx = await auth.getSignedInProfile();
+    if (!ctx) return;
+
+    const profile = ctx.profile || {};
+    const meta = (ctx.user && ctx.user.user_metadata) || {};
+    const name = String(profile.full_name || meta.full_name || "").trim();
+    const phone = String(profile.phone || meta.phone || "").trim();
+
+    const nameInput = document.getElementById("name");
+    const phoneInput = document.getElementById("phone");
+
+    // Only fill empty fields — never overwrite what the customer already typed.
+    if (nameInput && !nameInput.value.trim() && name) nameInput.value = name;
+    if (phoneInput && !phoneInput.value.trim() && phone) phoneInput.value = phone;
+  } catch (err) {
+    // Prefill is a convenience only; checkout must keep working for guests.
+    console.warn("Could not prefill checkout from profile:", err);
+  }
 }
 
 /* ---------- Store open/closed status ---------- */

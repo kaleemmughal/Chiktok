@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Dera Karahi</title>
+  <meta name="description" content="Sign in or create your Dera Karahi account for faster checkout." />
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <header class="site-header site-header--simple">
+    <div class="container header-main">
+      <a href="index.html" class="brand">
+        <img src="assets/logo.svg" alt="Dera Karahi logo" class="brand-logo" />
+        <span class="brand-text">
+          <span class="brand-name">Dera Karahi</span>
+          <span class="brand-tag">Desi Karahi &amp; BBQ</span>
+        </span>
+      </a>
+      <a href="index.html" class="btn btn-ghost">← Back to menu</a>
+    </div>
+  </header>
+
+  <main class="auth-page">
+    <div class="container">
+      <div class="auth-shell" data-auth-page>
+        <div class="auth-card">
+          <div class="auth-head">
+            <h1 id="authTitle">Welcome back</h1>
+            <p id="authSubtitle">Sign in to reorder faster and view your orders.</p>
+          </div>
+
+          <div class="auth-toggle" role="tablist" aria-label="Sign in or create an account">
+            <button type="button" role="tab" id="signinTab" aria-controls="signinPanel" aria-selected="true" data-auth-tab="signin">Sign In</button>
+            <button type="button" role="tab" id="signupTab" aria-controls="signupPanel" aria-selected="false" tabindex="-1" data-auth-tab="signup">Create Account</button>
+          </div>
+
+          <div id="authError" class="form-error" role="alert" aria-live="assertive" hidden></div>
+          <div id="authNotice" class="form-success" role="status" aria-live="polite" hidden></div>
+
+          <section id="signinPanel" role="tabpanel" aria-labelledby="signinTab" data-auth-panel="signin">
+            <form id="signInForm" class="auth-form" novalidate>
+              <div class="field" data-field="signinEmail">
+                <label for="signinEmail">Email</label>
+                <input id="signinEmail" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+              </div>
+              <div class="field" data-field="signinPassword">
+                <label for="signinPassword">Password</label>
+                <input id="signinPassword" name="password" type="password" autocomplete="current-password" placeholder="Your password" required />
+              </div>
+              <button type="submit" class="btn btn-primary btn-block auth-submit" id="signInSubmit">Sign In</button>
+            </form>
+          </section>
+
+          <section id="signupPanel" role="tabpanel" aria-labelledby="signupTab" data-auth-panel="signup" hidden>
+            <form id="signUpForm" class="auth-form" novalidate>
+              <div class="field" data-field="signupName">
+                <label for="signupName">Full Name</label>
+                <input id="signupName" name="full_name" type="text" autocomplete="name" placeholder="e.g. Ahmed Khan" required />
+              </div>
+              <div class="field" data-field="signupPhone">
+                <label for="signupPhone">Phone Number</label>
+                <input id="signupPhone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="03XX-XXXXXXX" required />
+              </div>
+              <div class="field" data-field="signupEmail">
+                <label for="signupEmail">Email</label>
+                <input id="signupEmail" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+              </div>
+              <div class="field" data-field="signupPassword">
+                <label for="signupPassword">Password</label>
+                <input id="signupPassword" name="password" type="password" autocomplete="new-password" placeholder="At least 6 characters" minlength="6" required />
+                <span class="auth-hint">Minimum 6 characters.</span>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block auth-submit" id="signUpSubmit">Create Account</button>
+            </form>
+          </section>
+
+          <div id="authSignedIn" class="auth-signed-in" hidden>
+            <div class="auth-avatar" aria-hidden="true">✓</div>
+            <h2>You're signed in</h2>
+            <p id="authSignedInAs"></p>
+            <a id="authContinue" class="btn btn-primary btn-block" href="index.html">Continue shopping</a>
+            <a class="btn btn-ghost btn-block" href="my-orders.html">My Orders</a>
+            <button type="button" class="btn btn-ghost btn-block" data-auth-logout>Logout</button>
+          </div>
+
+          <p class="auth-alt">Your account is optional — guest checkout is always available.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-bottom">© <span id="year"></span> Dera Karahi. All rights reserved.</div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/common.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>
